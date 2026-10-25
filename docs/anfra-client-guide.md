@@ -34,15 +34,16 @@ cx = AnfraClient.from_env(dataset="running_analytics")  # ANFRA_MCP_URL / .env
 st.title("My new data app")
 
 res = cx.query(
-    dimensions={"month": "activities.month"},
-    measures={"km": "total_distance_km"},
+    dimensions=["activities.month"],
+    measures=["total_distance_km"],
     filters=[
         is_in("activities.sport_group", ["run"]),
         between("activities.date", "2026-01-01", "2026-12-31"),
+        "activities.is_race == true",  # free-form AQL, same list as typed filters
     ],
-    order_by=[("month", "asc")],
+    order_by=["activities.month asc"],
 )
-st.bar_chart(res.frame().set_index("month")["km"])
+st.bar_chart(res.frame().set_index("month")["total_distance_km"])
 ```
 
 Run `anfra serve` first (the client cannot start it for you):
@@ -53,28 +54,68 @@ Run `anfra serve` first (the client cannot start it for you):
 
 ## The query surface
 
-Everything hangs off one class, `AnfraClient`:
+Everything hangs off one class, `AnfraClient`. `query()` is the default —
+logical elements in, rows back, no AQL text to format:
 
 | Method | Purpose |
 | --- | --- |
-| `query(dimensions=…, measures=…, filters=…, order_by=…)` | Logical-elements explore. Dimensions/measures are `{"alias": "model.field or metric"}`. |
+| `query(dimensions=…, measures=…, custom_metrics=…, filters=…, order_by=…)` | **Default surface.** See element forms below. |
 | `aql(query_text, filters=…)` | Raw AQL escape hatch — needed for query-local `case()` dimensions and anything the structured API can't say. Filters still go through the typed API. |
 | `sql(query, data_source=…)` | Raw SQL (utilities, health checks). AQL is preferred; SQL bypasses the semantic layer. |
 | `compile(query)` | AQL → SQL text without executing (debugging, equivalence tests). |
 | `ping()` / `tools_list()` / `initialize()` | Health checks and introspection. |
 
-**Filters** are typed objects ANDed by the *server*, never string-interpolated
-into the query — this is what makes dynamic dashboards safe:
+**Element forms** — `dimensions` and `measures` each accept a single ref, a
+list, or a mapping; aliases are derived from the last path segment and always
+rendered explicitly, so result columns get clean, predictable names:
+
+```python
+cx.query(dimensions="activities.sport_group", measures="total_time_h")
+# == cx.query(
+#     dimensions=[("sport_group", "activities.sport_group")],
+#     measures=[("total_time_h", "total_time_h")],
+# )
+```
+
+**Query-local metrics** (`custom_metrics`) render as `metric name = expr;`
+assignments before the explore — the AQL way to express semi-additive
+KPIs (latest week, trailing averages) that dataset metrics can't say:
+
+```python
+res = cx.query(
+    custom_metrics={
+        "this_week_run_km": (
+            "run_distance_km | where(activities.week_start == max(activities.week_start))"
+        ),
+    },
+    measures=[("this_week", "this_week_run_km")],
+    filters=["activities.week_start matches @(last 4 weeks)"],
+    timezone="Europe/Paris",
+)
+```
+
+`is_explore=False` renders only those assignments (no explore block): the
+server compiles it and returns no rows — handy with `.sql`/`compile()` to
+inspect what a metric compiles to.
+
+**Filters** — typed objects and plain AQL strings mix freely in one list;
+typed filters go to `input.filters`, strings/`Condition`s to
+`input.conditions`, all ANDed *by the server* (never string-interpolated
+into the query — this is what makes dynamic dashboards safe):
 
 - `is_in(field, values)` — anfra's `is` operator is an IN-list (validated)
 - `between(field, low, high)` — inclusive range; validated for dates (validated)
 - `last(field, n, unit="day")` — relative windows (validated)
-- `condition("activities.date matches @(last 90 days)")` — free-form AQL condition (validated)
+- `condition("…")` / `"…"` strings — free-form AQL conditions (validated)
 - low-level `Filter(field=…, operator=…, values=…)` for unvalidated operators
   (`contains`, `is_not`, …) — anfra may accept them; we haven't pinned them.
 
 Numbers are stringified automatically (anfra's MCP schema refuses JSON numbers
-to avoid precision loss). Empty `is` filters are rejected client-side.
+to avoid precision loss). Empty `is` filters are rejected client-side. Invalid
+identifiers (metric names, aliases) are rejected client-side before any call.
+
+**order_by**: `"hours desc"` / `"week_start"` (direction defaults to asc) or
+`(alias, "desc")` tuples.
 
 **Pagination**: `page=` / `page_size=` (≤10000 rows/page, `has_more` on the
 result). **Timezone**: pass IANA names (`"Europe/Paris"`) for relative dates

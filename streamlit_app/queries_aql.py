@@ -20,7 +20,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from anfra_client import AnfraClient, Condition, Filter, between, is_in
+from anfra_client import AnfraClient, Filter, between, is_in
 
 DATASET = "running_analytics"
 # Date truncation (weekly buckets, "last N" windows) must use the athlete's local
@@ -38,11 +38,11 @@ def _frame(res) -> pd.DataFrame:  # type: ignore[no-untyped-def]
     return res.frame()
 
 
-def _sport_filter(sports: tuple[str, ...]) -> list[Filter | Condition]:
+def _sport_filter(sports: tuple[str, ...]) -> list[Filter]:
     return [is_in("activities.sport_group", list(sports))] if sports else []
 
 
-def _surface_filter(surfaces: tuple[str, ...]) -> list[Filter | Condition]:
+def _surface_filter(surfaces: tuple[str, ...]) -> list[Filter]:
     return [is_in("activities.run_surface", list(surfaces))] if surfaces else []
 
 
@@ -54,16 +54,17 @@ def _surface_filter(surfaces: tuple[str, ...]) -> list[Filter | Condition]:
 @st.cache_data(ttl=300)
 def kpi_fitness() -> pd.DataFrame:
     """Latest-week CTL / ATL / TSB from the intervals.icu weekly summary."""
-    res = get_client().aql(
-        "metric latest_ctl = weekly_summary.ctl\n"
-        "  | where(weekly_summary.week_start == max(weekly_summary.week_start));\n"
-        "metric latest_atl = weekly_summary.atl\n"
-        "  | where(weekly_summary.week_start == max(weekly_summary.week_start));\n"
-        "metric latest_tsb = weekly_summary.tsb\n"
-        "  | where(weekly_summary.week_start == max(weekly_summary.week_start));\n"
-        "explore {\n"
-        "  measures { ctl: latest_ctl, atl: latest_atl, tsb: latest_tsb }\n"
-        "}"
+    res = get_client().query(
+        custom_metrics={
+            "latest_ctl": "weekly_summary.ctl"
+            " | where(weekly_summary.week_start == max(weekly_summary.week_start))",
+            "latest_atl": "weekly_summary.atl"
+            " | where(weekly_summary.week_start == max(weekly_summary.week_start))",
+            "latest_tsb": "weekly_summary.tsb"
+            " | where(weekly_summary.week_start == max(weekly_summary.week_start))",
+        },
+        measures=[("ctl", "latest_ctl"), ("atl", "latest_atl"), ("tsb", "latest_tsb")],
+        timezone=TIMEZONE,
     )
     return _frame(res)
 
@@ -71,16 +72,16 @@ def kpi_fitness() -> pd.DataFrame:
 @st.cache_data(ttl=300)
 def kpi_week_distance(sports: tuple[str, ...], surfaces: tuple[str, ...]) -> pd.DataFrame:
     """This week's run km vs the trailing 4-week weekly average."""
-    res = get_client().aql(
-        "metric this_week_run_km = run_distance_km\n"
-        "  | where(activities.week_start == max(activities.week_start));\n"
-        "metric avg_4wk_run_km =\n"
-        "  unique(activities.week_start) | select(v: run_distance_km) | avg(v);\n"
-        "explore {\n"
-        "  measures { this_week: this_week_run_km, avg_4wk: avg_4wk_run_km }\n"
-        "  filters { activities.week_start matches @(last 4 weeks) }\n"
-        "}",
-        filters=_sport_filter(sports) + _surface_filter(surfaces),
+    res = get_client().query(
+        custom_metrics={
+            "this_week_run_km": "run_distance_km"
+            " | where(activities.week_start == max(activities.week_start))",
+            "avg_4wk_run_km": "unique(activities.week_start) | select(v: run_distance_km) | avg(v)",
+        },
+        measures=[("this_week", "this_week_run_km"), ("avg_4wk", "avg_4wk_run_km")],
+        filters=["activities.week_start matches @(last 4 weeks)"]
+        + _sport_filter(sports)
+        + _surface_filter(surfaces),
         timezone=TIMEZONE,
     )
     df = _frame(res)
@@ -90,12 +91,9 @@ def kpi_week_distance(sports: tuple[str, ...], surfaces: tuple[str, ...]) -> pd.
 @st.cache_data(ttl=300)
 def kpi_90d(sports: tuple[str, ...]) -> pd.DataFrame:
     """Total distance across all sports over the last 90 days (wall clock)."""
-    res = get_client().aql(
-        "explore {\n"
-        "  measures { km: total_distance_km }\n"
-        "  filters { activities.date matches @(last 90 days) }\n"
-        "}",
-        filters=_sport_filter(sports),
+    res = get_client().query(
+        measures={"km": "total_distance_km"},
+        filters=["activities.date matches @(last 90 days)"] + _sport_filter(sports),
     )
     return _frame(res)
 
@@ -103,17 +101,15 @@ def kpi_90d(sports: tuple[str, ...]) -> pd.DataFrame:
 @st.cache_data(ttl=300)
 def kpi_decoupling() -> pd.DataFrame:
     """Average HR decoupling and long-run count over the last 90 days."""
-    res = get_client().aql(
-        "explore {\n"
-        "  measures {\n"
-        "    avg_decoupling_pct: decoupling_calc.avg_decoupling,\n"
-        "    long_runs: decoupling_calc.long_run_count\n"
-        "  }\n"
-        "  filters { decoupling_calc.activity_start matches @(last 90 days) }\n"
-        "}",
+    res = get_client().query(
+        measures={
+            "avg_decoupling": "decoupling_calc.avg_decoupling",
+            "long_runs": "decoupling_calc.long_run_count",
+        },
+        filters=["decoupling_calc.activity_start matches @(last 90 days)"],
         timezone=TIMEZONE,
     )
-    return _frame(res).rename(columns={"avg_decoupling_pct": "avg_decoupling"})
+    return _frame(res)
 
 
 # --------------------------------------------------------------------------
@@ -123,19 +119,11 @@ def kpi_decoupling() -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def fitness_trend(date_from: str, date_to: str) -> pd.DataFrame:
-    res = get_client().aql(
-        "explore {\n"
-        "  dimensions {\n"
-        "    week_start: weekly_summary.week_start\n"
-        "  }\n"
-        "  measures {\n"
-        "    ctl: weekly_summary.ctl, atl: weekly_summary.atl, tsb: weekly_summary.tsb\n"
-        "  }\n"
-        "  sorts {\n"
-        "    week_start asc\n"
-        "  }\n"
-        "}",
+    res = get_client().query(
+        dimensions=["weekly_summary.week_start"],
+        measures=["weekly_summary.ctl", "weekly_summary.atl", "weekly_summary.tsb"],
         filters=[between("weekly_summary.week_start", date_from, date_to)],
+        order_by=["week_start asc"],
         timezone=TIMEZONE,
     )
     return _frame(res)
@@ -144,19 +132,11 @@ def fitness_trend(date_from: str, date_to: str) -> pd.DataFrame:
 @st.cache_data(ttl=300)
 def sport_mix(date_from: str, date_to: str) -> pd.DataFrame:
     """Hours by sport (cross-filter SOURCE — deliberately ignores sport filters)."""
-    res = get_client().aql(
-        "explore {\n"
-        "  dimensions {\n"
-        "    sport_group: activities.sport_group\n"
-        "  }\n"
-        "  measures {\n"
-        "    hours: total_time_h\n"
-        "  }\n"
-        "  sorts {\n"
-        "    hours desc\n"
-        "  }\n"
-        "}",
+    res = get_client().query(
+        dimensions=["activities.sport_group"],
+        measures={"hours": "total_time_h"},
         filters=[between("activities.date", date_from, date_to)],
+        order_by=["hours desc"],
         timezone=TIMEZONE,
     )
     return _frame(res)

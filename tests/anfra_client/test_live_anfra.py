@@ -142,3 +142,60 @@ def test_empty_is_filter_rejected_before_send() -> None:
 def test_compile_produces_executable_sql() -> None:
     sql = CLIENT.compile("explore { measures { x: total_distance_km } }")
     assert "SELECT" in sql.upper()
+
+
+# --------------------------------------------------------------------------
+# query(): the structured surface, pinned against the live compiler
+# --------------------------------------------------------------------------
+
+
+def test_query_api_matches_handwritten_aql() -> None:
+    """Structured query() output equals the hand-written explore it replaces."""
+    structured = CLIENT.query(
+        dimensions=["activities.sport_group"],
+        measures={"hours": "total_time_h"},
+        order_by=["hours desc"],
+    )
+    handwritten = CLIENT.aql(
+        "explore {\n"
+        "  dimensions {\n"
+        "    sport_group: activities.sport_group\n"
+        "  }\n"
+        "  measures {\n"
+        "    hours: total_time_h\n"
+        "  }\n"
+        "  sorts {\n"
+        "    hours desc\n"
+        "  }\n"
+        "}"
+    )
+    assert structured.rows == handwritten.rows
+
+
+def test_query_custom_metrics_end_to_end() -> None:
+    """Prelude + alias-to-prelude-measure compiles and computes real values."""
+    res = CLIENT.query(
+        custom_metrics={
+            "this_week_run_km": "run_distance_km"
+            " | where(activities.week_start == max(activities.week_start))",
+        },
+        measures=[("w", "this_week_run_km")],
+    )
+    assert len(res) == 1
+    assert float(res.rows[0]["w"]) > 0
+
+
+def test_query_string_filters_narrow_results() -> None:
+    all_rows = CLIENT.query(dimensions="activities.sport_group").rows
+    run_only = CLIENT.query(
+        dimensions="activities.sport_group",
+        filters=["activities.sport_group in ['run']"],
+    ).rows
+    assert len(run_only) == 1
+    assert len(all_rows) > len(run_only)
+
+
+def test_query_derived_aliases_name_result_columns() -> None:
+    """Bare refs produce last-segment column names (never 'model->field')."""
+    res = CLIENT.query(dimensions="activities.sport_group", measures="total_time_h")
+    assert {c.name for c in res.columns} == {"sport_group", "total_time_h"}

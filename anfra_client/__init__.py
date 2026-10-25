@@ -6,7 +6,7 @@ Domain-agnostic: the running-analytics app is consumer #1, the next data app
 should need nothing here but its own dataset name and queries.
 """
 
-from anfra_client.client import AnfraClient
+from anfra_client.client import AnfraClient, QueryElem, QueryElems
 from anfra_client.errors import (
     AnfraCompileError,
     AnfraConnectionError,
@@ -21,6 +21,8 @@ from anfra_client.models import Column, Condition, Filter, QueryResult
 
 __all__ = [
     "AnfraClient",
+    "QueryElem",
+    "QueryElems",
     "AnfraError",
     "AnfraConnectionError",
     "AnfraSessionError",

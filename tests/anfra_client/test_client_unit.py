@@ -255,3 +255,116 @@ def test_flat_json_bodies_parse_too():
 def test_sse_body_helper_round_trips():
     body = sse_body({"jsonrpc": "2.0", "id": 1, "result": {}})
     assert body.startswith("event: message\ndata: ")
+
+
+# --------------------------------------------------------------------------
+# query(): the structured/logical surface
+# --------------------------------------------------------------------------
+
+
+def _last_call(transport: MockTransport) -> dict:
+    return transport.tool_calls("core.query")[-1].arguments
+
+
+def test_query_str_elems_get_derived_aliases(client, transport):
+    client.query(dimensions="activities.sport_group", measures="total_time_h")
+    q = _last_call(transport)["query"]
+    assert "sport_group: activities.sport_group" in q
+    assert "total_time_h: total_time_h" in q
+    assert q.startswith("explore {")
+
+
+def test_query_accepts_tuples_dicts_and_single_values(client, transport):
+    client.query(dimensions=("s", "activities.sport_group"), measures={"h": "total_time_h"})
+    q = _last_call(transport)["query"]
+    assert "s: activities.sport_group" in q
+    assert "h: total_time_h" in q
+    client.query(dimensions="activities.sport_group", measures="total_time_h")
+    q2 = _last_call(transport)["query"]
+    assert "sport_group: activities.sport_group" in q2
+
+
+def test_query_custom_metrics_render_preludes_in_order(client, transport):
+    client.query(
+        custom_metrics={"m_a": "x | y", "m_b": "z"},
+        measures=[("a", "m_a"), ("b", "m_b")],
+    )
+    q = _last_call(transport)["query"]
+    lines = q.splitlines()
+    assert lines[0] == "metric m_a = x | y;"
+    assert lines[1] == "metric m_b = z;"
+    assert "a: m_a" in q and "b: m_b" in q
+
+
+def test_query_rejects_bad_custom_metric_name(client, transport):
+    with pytest.raises(ValueError, match="custom metric name"):
+        client.query(custom_metrics={"1bad": "x"}, measures="total_time_h")
+
+
+def test_query_rejects_duplicate_derived_aliases(client, transport):
+    with pytest.raises(ValueError, match="duplicate alias"):
+        client.query(dimensions=["a.sport_group", "b.sport_group"], measures="total_time_h")
+
+
+def test_query_rejects_invalid_alias(client, transport):
+    with pytest.raises(ValueError, match="dimensions alias"):
+        client.query(dimensions=[("bad-alias", "activities.sport_group")])
+
+
+def test_query_needs_something_to_render(client, transport):
+    with pytest.raises(ValueError, match="at least one dimension or measure"):
+        client.query()
+
+
+def test_query_mixed_filters_route_to_the_right_payload_slots(client, transport):
+    client.query(
+        measures="total_time_h",
+        filters=[
+            is_in("activities.sport_group", ["run"]),
+            "activities.date matches @(last 90 days)",
+            condition("activities.is_race == true"),
+        ],
+    )
+    inp = _last_call(transport)["input"]
+    assert inp["filters"] == [
+        {"field": "activities.sport_group", "operator": "is", "values": ["run"]}
+    ]
+    assert inp["conditions"] == [
+        {"expr": "activities.date matches @(last 90 days)"},
+        {"expr": "activities.is_race == true"},
+    ]
+
+
+def test_query_rejects_unknown_filter_types(client, transport):
+    with pytest.raises(TypeError, match="Filter, Condition, or str"):
+        client.query(measures="total_time_h", filters=[42])
+
+
+def test_query_order_by_strings_with_default_direction(client, transport):
+    client.query(measures="total_time_h", order_by=["hours desc", "week_start"])
+    q = _last_call(transport)["query"]
+    assert "hours desc" in q
+    assert "week_start asc" in q
+
+
+def test_query_order_by_rejects_bad_direction(client, transport):
+    with pytest.raises(ValueError, match="asc.*desc"):
+        client.query(measures="total_time_h", order_by=[("hours", "sideways")])
+
+
+def test_query_is_explore_false_renders_preludes_only(client, transport):
+    client.query(custom_metrics={"m": "total_time_h"}, is_explore=False)
+    q = _last_call(transport)["query"]
+    assert q == "metric m = total_time_h;"
+    assert "explore" not in q
+
+
+def test_query_is_explore_false_requires_metrics(client, transport):
+    with pytest.raises(ValueError, match="custom_metrics"):
+        client.query(measures="total_time_h", is_explore=False)
+
+
+def test_aql_accepts_plain_string_filters(client, transport):
+    client.aql("explore { measures { x: total_time_h } }", filters=["a == b"])
+    inp = _last_call(transport)["input"]
+    assert inp["conditions"] == [{"expr": "a == b"}]
