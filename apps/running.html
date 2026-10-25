@@ -71,7 +71,8 @@
       --chart-road: #16324F; --chart-trail: #C9A66B; --chart-indoor: #6E7F92;
       --chart-pos: #2C5F8A; --chart-neg: #B4533C;
     }
-    .dark {
+    /* .dark covers direct-class apps; [data-theme] covers the anfra frame toggle. */
+    .dark, :root[data-theme="dark"] {
       --background: #0E1B2A;                         /* deep night-sea base */
       --foreground: #EAF0F6;                         /* foam white text */
       --card: #16283C;                               /* slightly lighter card surface */
@@ -433,16 +434,22 @@
   </main>
 
   <script>
-    // ---- Design layer: follow the OS light/dark setting (no storage: the frame is sandboxed). ----
+    // ---- Design layer: follow the anfra frame's day/night toggle (data-theme on <html>)
+    // and fall back to the OS setting. Charts re-render on either signal. ----
     const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const applyTheme = () => document.documentElement.classList.toggle('dark', darkQuery.matches);
+    const isDark = () => {
+      const t = document.documentElement.dataset.theme;
+      if (t === 'dark' || t === 'light') return t === 'dark';
+      return darkQuery.matches;
+    };
+    const applyTheme = () => document.documentElement.classList.toggle('dark', isDark());
     applyTheme();
 
     function chartTheme () {
       const css = getComputedStyle(document.documentElement);
       const get = (name) => css.getPropertyValue(name).trim();
       return {
-        dark: darkQuery.matches,
+        dark: isDark(),
         text: get('--chart-text'),
         grid: get('--chart-grid'),
         cat: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => get(`--chart-cat-${n}`)),
@@ -905,9 +912,10 @@
         legend: { top: 0, textStyle: { color: theme.text } },
         grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
         tooltip: { trigger: 'axis' },
-        // TSB semantic colors: vermilion below zero (fatigued), indigo above (fresh).
-        visualMap: { show: false, type: 'piecewise', seriesIndex: 2,
-          pieces: [{ lt: 0, color: theme.neg }, { gte: 0, color: theme.pos }] },
+        // TSB semantic colors via series split (a piecewise visualMap here crashes
+        // echarts 6.1.0 with "d[0].coord" when the dimension is empty): vermilion
+        // below zero (fatigued), indigo above (fresh). Gaps at zero crossings are
+        // bridged visually by the zero markLine.
         xAxis: { type: 'category', data: rows.map((r) => day(r.week)), ...axisStyle(theme) },
         yAxis: [
           { type: 'value', ...axisStyle(theme) },
@@ -920,13 +928,16 @@
           { name: 'ATL', type: 'line', smooth: true, showSymbol: false,
             lineStyle: { color: theme.cat[3], width: 2 }, itemStyle: { color: theme.cat[3] },
             data: rows.map((r) => num(r.atl)) },
-          { name: 'TSB', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 1,
+          { name: 'TSB (fresh)', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 1,
             lineStyle: { color: theme.pos, width: 2, type: 'dashed' }, itemStyle: { color: theme.pos },
-            data: rows.map((r) => num(r.tsb)),
+            data: rows.map((r) => { const v = num(r.tsb); return v != null && v >= 0 ? v : null; }),
             markLine: { silent: true, symbol: 'none',
               lineStyle: { color: theme.grid, type: 'solid' },
               label: { show: false },
               data: [{ yAxis: 0 }] } },
+          { name: 'TSB (fatigue)', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 1,
+            lineStyle: { color: theme.neg, width: 2, type: 'dashed' }, itemStyle: { color: theme.neg },
+            data: rows.map((r) => { const v = num(r.tsb); return v != null && v < 0 ? v : null; }) },
         ],
       });
     }
@@ -982,7 +993,8 @@
     function renderDailyHeatmap (theme) {
       const rows = dailyRuns.result.rows;
       const points = rows.map((r) => [day(r.day), num(r.run_km) || 0]);
-      const maxKm = Math.max(...points.map((p) => p[1]), 1);
+      const rawMax = Math.max(...points.map((p) => p[1]), 1);
+      const maxKm = isFinite(rawMax) ? rawMax : 1;
       // Calendar ramp: cream → indigo (dark mode: card surface → mid blue).
       const ramp = theme.dark ? ['#16283C', '#2C5F8A', '#3E7CB1'] : ['#EFEAD8', '#A3C6DF', '#3E7CB1', '#16324F'];
       charts['daily-heatmap'].setOption({
@@ -1277,7 +1289,17 @@
     }
 
     app.subscribe(render);
-    darkQuery.addEventListener('change', () => { applyTheme(); render(); });
+    // The frame toggle mutates data-theme on <html>; watch it (and our own .dark
+    // class writes) and re-render charts so they follow the active palette.
+    let themeQueued = false;
+    const onThemeSignal = () => {
+      if (themeQueued) return;
+      themeQueued = true;
+      queueMicrotask(() => { themeQueued = false; applyTheme(); render(); });
+    };
+    new MutationObserver(onThemeSignal)
+      .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] });
+    darkQuery.addEventListener('change', onThemeSignal);
 
     // Cross-filter: click a sport-mix slice (toggles; selection filters the mapped queries).
     charts['sport-mix'].on('click', (params) => {
