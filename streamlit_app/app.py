@@ -13,7 +13,7 @@ import datetime as dt
 
 import pandas as pd
 import plotly.graph_objects as go
-import queries as q
+import queries_aql as q
 import streamlit as st
 from theme import (
     DARK,

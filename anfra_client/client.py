@@ -61,6 +61,8 @@ _RETRYABLE_STATUSES = {500, 502, 503, 504}
 
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$")
+
 # Logical query elements: "model.field" / "metric", ("alias", "model.field"),
 # a sequence of either, or an {alias: ref} mapping.
 QueryElem = str | tuple[str, str]
@@ -115,11 +117,21 @@ def _normalize_elems(value: QueryElems | None, kind: str) -> list[tuple[str, str
     return out
 
 
-def _render_preludes(custom_metrics: Mapping[str, str] | None) -> list[str]:
+def _render_preludes(
+    custom_metrics: Mapping[str, str] | None,
+    custom_dimensions: Mapping[str, str] | None = None,
+) -> list[str]:
     lines: list[str] = []
     for name, expr in (custom_metrics or {}).items():
         _ident_or_fail(name, "custom metric name")
         lines.append(f"metric {name} = {expr};")
+    for name, expr in (custom_dimensions or {}).items():
+        if not _FIELD_RE.match(name):
+            raise ValueError(
+                f"custom dimension name {name!r} must be a dotted model.field path "
+                "(e.g. 'activities.pace_bucket')"
+            )
+        lines.append(f"dimension {name} = {expr};")
     return lines
 
 
@@ -404,6 +416,7 @@ class AnfraClient:
         dimensions: QueryElems | None = None,
         measures: QueryElems | None = None,
         custom_metrics: Mapping[str, str] | None = None,
+        custom_dimensions: Mapping[str, str] | None = None,
         filters: Sequence[Filter | Condition | str] | None = None,
         order_by: Sequence[str | tuple[str, str]] | None = None,
         dataset: str | None = None,
@@ -425,6 +438,10 @@ class AnfraClient:
         - ``custom_metrics``: ``{"name": "expr"}`` rendered as query-local
           ``metric name = expr;`` assignments. Reference them from ``measures``
           by bare name.
+        - ``custom_dimensions``: ``{"model.field": "expr"}`` rendered as
+          query-local ``dimension model.field = expr;`` assignments (case
+          buckets, derived values). Reference them from ``dimensions`` by the
+          full dotted path.
         - ``filters``: :class:`Filter` (server-validated ``input.filters``),
           :class:`Condition` or plain ``str`` (free-form ``input.conditions``),
           freely mixed.
@@ -453,6 +470,7 @@ class AnfraClient:
             dimensions=dimensions,
             measures=measures,
             custom_metrics=custom_metrics,
+            custom_dimensions=custom_dimensions,
             order_by=order_by,
             is_explore=is_explore,
         )
@@ -470,10 +488,11 @@ class AnfraClient:
         dimensions: QueryElems | None,
         measures: QueryElems | None,
         custom_metrics: Mapping[str, str] | None,
+        custom_dimensions: Mapping[str, str] | None,
         order_by: Sequence[str | tuple[str, str]] | None,
         is_explore: bool,
     ) -> str:
-        preludes = _render_preludes(custom_metrics)
+        preludes = _render_preludes(custom_metrics, custom_dimensions)
         if not is_explore:
             if not preludes:
                 raise ValueError(
@@ -513,7 +532,7 @@ class AnfraClient:
         dimensions: dict[str, str], measures: dict[str, str], order_by: list[tuple[str, str]]
     ) -> str:
         """Legacy dict-only renderer (kept for compatibility with older callers)."""
-        return AnfraClient._render_query(dimensions, measures, None, order_by, True)
+        return AnfraClient._render_query(dimensions, measures, None, None, order_by, True)
 
     def aql(
         self,

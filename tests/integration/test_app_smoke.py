@@ -36,7 +36,7 @@ EXPECTED_KEYS = {
 }
 
 
-def test_app_renders_all_charts(queries_mod, repo_root, monkeypatch):
+def test_app_renders_all_charts(repo_root, monkeypatch):
     rendered: list[tuple[str, object]] = []
 
     def fake_plotly_chart(fig, **kwargs):
@@ -44,6 +44,20 @@ def test_app_renders_all_charts(queries_mod, repo_root, monkeypatch):
         return None  # no selection
 
     monkeypatch.setattr(st, "plotly_chart", fake_plotly_chart)
+
+    # Prefer recorded MCP responses (server-independent); fall back to the
+    # live server when no recordings exist.
+    import app_replay
+    import queries_aql
+
+    client = app_replay.replay_client()
+    if client is None:
+        try:
+            client = queries_aql.get_client()
+            client.ping()
+        except Exception:  # noqa: BLE001
+            pytest.skip("no replay recordings and anfra serve not reachable")
+    monkeypatch.setattr(queries_aql, "get_client", lambda: client)
 
     runpy.run_path(str(repo_root / "streamlit_app" / "app.py"))
 

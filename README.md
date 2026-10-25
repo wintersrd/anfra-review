@@ -36,7 +36,7 @@ the plain `duckdb` CLI (use `--build-only`).
 ~/.anfra/bin/anfra serve                         # http://127.0.0.1:7878/apps/running
 ```
 
-## Architecture: anfra as the backend, apps as consumers
+## Architecture: anfra as the backend, apps as consumers — the Streamlit app's live data layer is `streamlit_app/queries_aql.py` (AQL over the anfra MCP); `queries.py` remains as the SQL test oracle
 
 `anfra serve` owns the DuckDB file, the semantic model (AML), and the query
 engine. Data apps — the native anfra dashboard, the Streamlit app, the next

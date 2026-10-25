@@ -1,0 +1,11 @@
+{
+ "tool": "core.query",
+ "key": "0b96404dac44a5db59b0d5f841407509",
+ "arguments": {
+  "data_source": "running",
+  "lang": "sql",
+  "query": "SELECT MIN(CAST(start_local AS DATE)) AS lo, MAX(CAST(start_local AS DATE)) AS hi FROM activities"
+ },
+ "status": 200,
+ "body": "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"sql\\\":\\\"SELECT MIN(CAST(start_local AS DATE)) AS lo, MAX(CAST(start_local AS DATE)) AS hi FROM activities\\\",\\\"columns\\\":[{\\\"name\\\":\\\"lo\\\",\\\"fieldName\\\":\\\"lo\\\",\\\"label\\\":\\\"lo\\\",\\\"adhoc\\\":true,\\\"isMeasure\\\":false,\\\"arrow_type\\\":{\\\"type\\\":\\\"date\\\",\\\"unit\\\":\\\"DAY\\\",\\\"label\\\":\\\"date32\\\"},\\\"db_type\\\":\\\"DATE\\\"},{\\\"name\\\":\\\"hi\\\",\\\"fieldName\\\":\\\"hi\\\",\\\"label\\\":\\\"hi\\\",\\\"adhoc\\\":true,\\\"isMeasure\\\":false,\\\"arrow_type\\\":{\\\"type\\\":\\\"date\\\",\\\"unit\\\":\\\"DAY\\\",\\\"label\\\":\\\"date32\\\"},\\\"db_type\\\":\\\"DATE\\\"}],\\\"result\\\":{\\\"fields\\\":[\\\"lo\\\",\\\"hi\\\"],\\\"records\\\":[[\\\"2024-10-05\\\",\\\"2026-10-21\\\"]]},\\\"has_more\\\":false,\\\"timings\\\":{\\\"steps\\\":[{\\\"step\\\":\\\"connecting_to_dw\\\",\\\"start_ms\\\":5},{\\\"step\\\":\\\"executing_query\\\",\\\"start_ms\\\":51},{\\\"step\\\":\\\"fetching_query_result\\\",\\\"start_ms\\\":68}],\\\"end_ms\\\":122}}\"}],\"structuredContent\":{\"sql\":\"SELECT MIN(CAST(start_local AS DATE)) AS lo, MAX(CAST(start_local AS DATE)) AS hi FROM activities\",\"columns\":[{\"name\":\"lo\",\"fieldName\":\"lo\",\"label\":\"lo\",\"adhoc\":true,\"isMeasure\":false,\"arrow_type\":{\"type\":\"date\",\"unit\":\"DAY\",\"label\":\"date32\"},\"db_type\":\"DATE\"},{\"name\":\"hi\",\"fieldName\":\"hi\",\"label\":\"hi\",\"adhoc\":true,\"isMeasure\":false,\"arrow_type\":{\"type\":\"date\",\"unit\":\"DAY\",\"label\":\"date32\"},\"db_type\":\"DATE\"}],\"result\":{\"fields\":[\"lo\",\"hi\"],\"records\":[[\"2024-10-05\",\"2026-10-21\"]]},\"has_more\":false,\"timings\":{\"steps\":[{\"step\":\"connecting_to_dw\",\"start_ms\":5},{\"step\":\"executing_query\",\"start_ms\":51},{\"step\":\"fetching_query_result\",\"start_ms\":68}],\"end_ms\":122}}}}\n\n"
+}

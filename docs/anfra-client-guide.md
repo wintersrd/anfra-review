@@ -121,6 +121,35 @@ identifiers (metric names, aliases) are rejected client-side before any call.
 result). **Timezone**: pass IANA names (`"Europe/Paris"`) for relative dates
 and date truncation.
 
+## Filter catalog
+
+Server-validated operators for `input.filters` (probed against 0.13.3, pinned by
+`tests/anfra_client/test_capability_matrix.py`):
+
+| Operator | Values | Notes |
+|---|---|---|
+| `is` | list (>=1) | IN-list; empty rejected |
+| `is_not` | list | negated IN |
+| `between` | 2 values | inclusive; dates |
+| `last` | ["N"] + `modifier` | relative window (`day`, ...) |
+| `greater_than` / `less_than` | [v] | row-level (pre-aggregation) |
+| `contains` / `starts_with` / `ends_with` | [v] | CASE-INSENSITIVE |
+| `before` / `after` | [date] | date fields |
+
+HAVING-style aggregated conditions: `Filter(field="model.field", operator=..., values=..., aggregation="sum")`
+— `aggregation` applies to a dataset FIELD, never a metric (server rejects that).
+
+Free-form conditions (`Condition` or plain strings) support the AQL expression
+grammar: `not in`, `!=`, `is not null`, `in [...]`, `matches @(last N days)`.
+
+## Record / replay (app smoke test)
+
+`uv run python tests/integration/app_replay.py` records every MCP response the
+app needs into `tests/integration/replay_data/` (committed). The full-app smoke
+test replays them offline — no server needed — and doubles as an envelope
+contract regression net. Re-record after re-syncs if you want fresh values
+(structure alone keeps the smoke test valid).
+
 ## Reading results
 
 `QueryResult` carries everything the server returned:
