@@ -4,17 +4,24 @@
 
   Modules: KPI strip (CTL/ATL/TSB, weekly run distance vs 4-wk avg, 90-day distance,
   recent HR decoupling) · fitness & load · volume & consistency · speed & progression ·
+  surface & stride (pace / stride / hilliness by month & surface, stride vs pace,
+  decoupling by surface) · pace distribution (weekly stacked hours by pace bucket) ·
   HR decoupling · pace by temperature.
 
+  Restyled as a Hokusai "Great Wave" palette: paper cream + Prussian-indigo ink, foam-white
+  cards, ochre accents used sparingly, vermilion reserved for negative values and alerts.
+  Pure CSS + ECharts colors; the CDN assets and SRI hashes are untouched.
+
   Two layers, change one without the other:
-  - Design layer: the Basecoat links, the <style> block (anfra tokens from DESIGN.md mapped onto
-    Basecoat's variables), the markup classes, and chartTheme().
+  - Design layer: the Basecoat links, the <style> block (Great Wave palette on Basecoat's
+    variables), the markup classes, and chartTheme().
   - SDK wiring: everything in the last <script> that touches `app`, a query, a filter or a drill.
 
   Filter semantics: the date filter drives every query (activities.date, weekly_summary.week_start,
-  weekly_by_category.week_start, decoupling_calc.activity_start). The sport filter and the
-  sport-mix slice click (cross-filter) only reach activities-based queries; weekly_summary,
-  weekly_by_category and decoupling_calc are all-sport at their own grain.
+  weekly_by_category.week_start, decoupling_calc.activity_start). The sport filter, the surface
+  filter and the sport-mix slice click (cross-filter) only reach activities-based queries;
+  weekly_summary, weekly_by_category and decoupling_calc are all-sport at their own grain
+  (decoupling by surface is grouped BY surface but is still decoupling_calc grain: date only).
 -->
 <html>
 <head>
@@ -30,55 +37,66 @@
   <script src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js"
     integrity="sha384-C2iskrW/uPW46KzOjrvJIQo4YkV8lkD+QS0CrDN18IIPIpT/g2USu8bTP3nvmIAD" crossorigin="anonymous"></script>
   <style>
-    /* anfra tokens (DESIGN.md) on Basecoat's variables. Light is from DESIGN.md; the dark values
-       are derived from it, since DESIGN.md only lists the light theme. */
+    /* Great Wave palette (Hokusai) on Basecoat's variables. Light is the palette spec:
+       paper cream, deep Prussian-indigo ink, foam-white cards, ochre accents, vermilion
+       reserved for negatives. Dark is the night-sea base with the same indigo ramp lifted
+       one step for contrast. ECharts cannot parse color functions, so chart colors are hex:
+       one indigo ramp deep→light (light mode) / light→deep (dark mode), plus per-surface
+       semantic colors (road = indigo, trail = ochre tan, indoor = slate). */
     :root {
-      --background: oklch(0.955 0.007 88.6);          /* paper: the page */
-      --foreground: oklch(0.201 0.022 301.1);         /* ink */
-      --card: oklch(1 0 0);                           /* white: panels */
-      --card-foreground: oklch(0.201 0.022 301.1);
-      --popover: oklch(1 0 0);
-      --popover-foreground: oklch(0.201 0.022 301.1);
-      --primary: oklch(0.565 0.194 300.3);            /* the one violet */
-      --primary-foreground: oklch(1 0 0);
-      --secondary: oklch(0.973 0.005 95.1);           /* sunken paper */
-      --secondary-foreground: oklch(0.392 0.021 304.3);
-      --muted: oklch(0.973 0.005 95.1);
-      --muted-foreground: oklch(0.485 0.022 306.3);
-      --accent: oklch(0.946 0.027 304.8);             /* violet wash: hover, selected */
-      --accent-foreground: oklch(0.201 0.022 301.1);
-      --border: oklch(0.201 0.022 301.1 / 0.12);
-      --input: oklch(0.201 0.022 301.1 / 0.22);
-      --ring: oklch(0.565 0.194 300.3);
+      --background: #F2EFE9;                         /* paper: the page */
+      --foreground: #16324F;                         /* deep Prussian-indigo ink */
+      --card: #FAF7F0;                               /* foam white: panels */
+      --card-foreground: #16324F;
+      --popover: #FAF7F0;
+      --popover-foreground: #16324F;
+      --primary: #1E4368;                            /* the one indigo */
+      --primary-foreground: #FAF7F0;
+      --secondary: #EFEAD8;                          /* warmer paper: sunken surfaces */
+      --secondary-foreground: #31485F;
+      --muted: #EDE9DE;
+      --muted-foreground: #55677B;
+      --accent: #E2E9F0;                             /* indigo wash: hover, selected */
+      --accent-foreground: #16324F;
+      --border: rgba(22, 50, 79, 0.16);              /* soft indigo-tinted borders */
+      --input: rgba(22, 50, 79, 0.24);
+      --ring: #1E4368;
       --radius: 0.625rem;
-      /* ECharts cannot parse oklch, so chart colors are hex. Violet first, fixed order. */
-      --chart-text: #5b5560;
-      --chart-grid: #e7e4e0;
-      --chart-cat-1: #7c4dce; --chart-cat-2: #1f9aa6; --chart-cat-3: #d9972b; --chart-cat-4: #d4527a;
-      --chart-cat-5: #3d7bd9; --chart-cat-6: #3f9d6b; --chart-cat-7: #dd7a3c; --chart-cat-8: #7d7785;
+      --ochre: #C9A66B;                              /* sparing: presets, highlights */
+      --vermilion: #B4533C;                          /* negative values, alerts */
+      --chart-text: #35506B;
+      --chart-grid: rgba(22, 50, 79, 0.10);          /* barely-there gridlines */
+      --chart-cat-1: #16324F; --chart-cat-2: #1E4368; --chart-cat-3: #2C5F8A; --chart-cat-4: #3E7CB1;
+      --chart-cat-5: #5492BE; --chart-cat-6: #6FA8D0; --chart-cat-7: #C9A66B; --chart-cat-8: #6E7F92;
+      --chart-road: #16324F; --chart-trail: #C9A66B; --chart-indoor: #6E7F92;
+      --chart-pos: #2C5F8A; --chart-neg: #B4533C;
     }
     .dark {
-      --background: oklch(0.17 0.015 301);
-      --foreground: oklch(0.961 0.007 304.2);
-      --card: oklch(0.215 0.017 301);
-      --card-foreground: oklch(0.961 0.007 304.2);
-      --popover: oklch(0.245 0.018 301);
-      --popover-foreground: oklch(0.961 0.007 304.2);
-      --primary: oklch(0.7 0.16 300);
-      --primary-foreground: oklch(0.17 0.015 301);
-      --secondary: oklch(0.26 0.018 301);
-      --secondary-foreground: oklch(0.86 0.01 304);
-      --muted: oklch(0.26 0.018 301);
-      --muted-foreground: oklch(0.72 0.02 304);
-      --accent: oklch(0.32 0.05 301);
-      --accent-foreground: oklch(0.961 0.007 304.2);
-      --border: oklch(1 0 0 / 0.1);
-      --input: oklch(1 0 0 / 0.16);
-      --ring: oklch(0.7 0.16 300);
-      --chart-text: #b4aebb;
-      --chart-grid: #38333d;
-      --chart-cat-1: #a98af0; --chart-cat-2: #4cc3cf; --chart-cat-3: #f0b252; --chart-cat-4: #f07ea0;
-      --chart-cat-5: #7aa8f2; --chart-cat-6: #6cc496; --chart-cat-7: #f59a63; --chart-cat-8: #a39dab;
+      --background: #0E1B2A;                         /* deep night-sea base */
+      --foreground: #EAF0F6;                         /* foam white text */
+      --card: #16283C;                               /* slightly lighter card surface */
+      --card-foreground: #EAF0F6;
+      --popover: #1B3048;
+      --popover-foreground: #EAF0F6;
+      --primary: #8FB4D4;                            /* indigo ramp lifted one step */
+      --primary-foreground: #0E1B2A;
+      --secondary: #1C324A;
+      --secondary-foreground: #C3D3E2;
+      --muted: #1C324A;
+      --muted-foreground: #9DB2C6;
+      --accent: #24405C;
+      --accent-foreground: #EAF0F6;
+      --border: rgba(234, 240, 246, 0.14);
+      --input: rgba(234, 240, 246, 0.2);
+      --ring: #8FB4D4;
+      --ochre: #D9BC85;
+      --vermilion: #D97B5F;
+      --chart-text: #C3D3E2;
+      --chart-grid: rgba(234, 240, 246, 0.08);
+      --chart-cat-1: #A9CBE4; --chart-cat-2: #8FB8D8; --chart-cat-3: #74A6CC; --chart-cat-4: #5C96C2;
+      --chart-cat-5: #4785B4; --chart-cat-6: #C9DCEC; --chart-cat-7: #D9BC85; --chart-cat-8: #93A9BF;
+      --chart-road: #A9CBE4; --chart-trail: #D9BC85; --chart-indoor: #93A9BF;
+      --chart-pos: #85B4D8; --chart-neg: #D97B5F;
     }
 
     /* Three sizes only (20, 14, 12px), one control height (32px), tabular numerals. */
@@ -91,7 +109,31 @@
     h1 { font-size: 20px; line-height: 28px; font-weight: 600; margin: 0; text-wrap: balance; }
     h2 { font-size: 14px; line-height: 20px; font-weight: 600; }
     .caption { font-size: 12px; line-height: 16px; color: var(--muted-foreground); }
-    .header { margin-bottom: 16px; }
+    .header { margin-bottom: 16px; position: relative; }
+    /* Great Wave motif: layered translucent arcs anchored bottom-right of the header.
+       Pure CSS, very low opacity — decoration that never competes with the text. */
+    .header::before, .header::after {
+      content: ""; position: absolute; z-index: -1; pointer-events: none;
+    }
+    .header::before {
+      top: -20px; right: -16px; width: 400px; height: 110px;
+      background:
+        radial-gradient(circle at 72% 140%, transparent 54px,
+          color-mix(in oklab, var(--primary) 14%, transparent) 55px 58px, transparent 59px),
+        radial-gradient(circle at 72% 140%, transparent 84px,
+          color-mix(in oklab, var(--primary) 10%, transparent) 85px 88px, transparent 89px),
+        radial-gradient(circle at 72% 140%, transparent 116px,
+          color-mix(in oklab, var(--ochre) 12%, transparent) 117px 120px, transparent 121px);
+    }
+    .header::after {
+      top: 10px; right: 350px; width: 240px; height: 76px;
+      background:
+        radial-gradient(circle at 80% 150%, transparent 40px,
+          color-mix(in oklab, var(--primary) 8%, transparent) 41px 43px, transparent 44px),
+        radial-gradient(circle at 80% 150%, transparent 64px,
+          color-mix(in oklab, var(--primary) 6%, transparent) 65px 67px, transparent 68px);
+    }
+    @media (max-width: 900px) { .header::before, .header::after { display: none; } }
     .note { margin: 0 0 16px; }
     .footer { margin: 24px 0 8px; }
     .btn, .input { height: 32px; font-size: 14px; }
@@ -109,6 +151,7 @@
     .date-range { display: flex; align-items: center; gap: 8px; }
     .date-range .input { width: 9.5rem; }
     .presets { display: flex; gap: 4px; }
+    .presets .btn { border-color: color-mix(in oklab, var(--ochre) 40%, var(--border)); }
     .spacer { flex: 1; }
 
     /* Modules */
@@ -123,6 +166,7 @@
 
     .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    .span2 { grid-column: 1 / -1; }
     @media (max-width: 900px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
     .chart { height: 300px; }
     .chart.tall { height: 340px; }
@@ -177,13 +221,29 @@
         </div>
       </div>
 
+      <div class="field-group" data-anfra-block="surface-picker" data-anfra-label="Surface" data-anfra-control="surface">
+        <label for="surface-input">Surface</label>
+        <!-- Basecoat multi-select combobox: fixed road/trail/indoor options, no loadOptions needed -->
+        <div id="surface-combobox" class="combobox" style="width: 160px" data-auto-highlight="true">
+          <input id="surface-input" type="text" role="combobox" placeholder="All surfaces" autocomplete="off"
+                 autocorrect="off" spellcheck="false" aria-autocomplete="list" aria-expanded="false"
+                 aria-controls="surface-listbox">
+          <div id="surface-popover" data-popover aria-hidden="true">
+            <div role="listbox" id="surface-listbox" aria-orientation="vertical" aria-multiselectable="true"
+                 data-empty="No surfaces found."></div>
+          </div>
+          <input type="hidden" name="surface" value="[]">
+        </div>
+      </div>
+
       <div class="spacer"></div>
       <button id="clear-selection" class="btn" data-variant="ghost" type="button">Clear selection</button>
     </div>
     <p class="caption note">
-      The date range applies to every chart. The sport picker and clicking a slice in the sport-mix
-      donut filter the activity-based charts and tiles; the weekly all-sport charts (fitness &amp; load,
-      hours by category) and HR decoupling keep their own grain and ignore them.
+      The date range applies to every chart. The sport picker, the surface picker and clicking a
+      slice in the sport-mix donut filter the activity-based charts and tiles; the weekly all-sport
+      charts (fitness &amp; load, hours by category) and both HR-decoupling views keep their own
+      grain and ignore them — decoupling by surface is already split BY surface.
     </p>
 
     <div class="kpis" data-anfra-container="kpis" data-anfra-label="Insights">
@@ -276,7 +336,7 @@
           <div id="monthly-pace-status" class="status"></div>
         </div>
         <div class="card" data-anfra-block="monthly-cadence" data-anfra-label="Monthly run cadence">
-          <header><h2>Avg run cadence by month</h2></header>
+          <header><h2>Avg run cadence by month <span class="caption">rpm · one-foot cycles/min</span></h2></header>
           <section><div id="monthly-cadence" class="chart" data-anfra-query="monthlyCadence"></div></section>
           <div id="monthly-cadence-status" class="status"></div>
         </div>
@@ -284,6 +344,48 @@
           <header><h2>Aerobic efficiency by month <span class="caption">m/s per bpm · higher = better</span></h2></header>
           <section><div id="monthly-efficiency" class="chart" data-anfra-query="monthlyEfficiency"></div></section>
           <div id="monthly-efficiency-status" class="status"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-anfra-container="module-surface" data-anfra-label="Surface &amp; Stride">
+      <h2 class="module-title">Surface &amp; stride <span class="caption">monthly · runs only · by surface</span></h2>
+      <div class="grid2">
+        <div class="card" data-anfra-block="surface-pace-trend" data-anfra-label="Run pace by month &amp; surface">
+          <header><h2>Run pace by month &amp; surface <span class="caption">min/km · lower = faster · gaps = no runs on that surface</span></h2></header>
+          <section><div id="surface-pace-trend" class="chart" data-anfra-query="surfacePaceTrend"></div></section>
+          <div id="surface-pace-trend-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="stride-trend" data-anfra-label="Avg stride by month &amp; surface">
+          <header><h2>Avg stride by month &amp; surface <span class="caption">time-weighted meters · trail strides run shorter</span></h2></header>
+          <section><div id="stride-trend" class="chart" data-anfra-query="strideTrend"></div></section>
+          <div id="stride-trend-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="hilliness-trend" data-anfra-label="Hilliness by month &amp; surface">
+          <header><h2>Hilliness by month &amp; surface <span class="caption">elevation gain per km (m/km)</span></h2></header>
+          <section><div id="hilliness-trend" class="chart" data-anfra-query="hillinessTrend"></div></section>
+          <div id="hilliness-trend-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="decoupling-by-surface" data-anfra-label="Decoupling by surface">
+          <header><h2>HR decoupling by surface <span class="caption">avg % · long runs ≥ 75 min · hover for run count</span></h2></header>
+          <section><div id="decoupling-by-surface" class="chart" data-anfra-query="decouplingBySurface"></div></section>
+          <div id="decoupling-by-surface-status" class="status"></div>
+        </div>
+        <div class="card span2" data-anfra-block="stride-vs-pace" data-anfra-label="Stride vs pace">
+          <header><h2>Stride vs pace <span class="caption">one dot per run · stride = speed × 60 ÷ cadence (rpm) · runs without a valid cadence are not shown</span></h2></header>
+          <section><div id="stride-vs-pace" class="chart tall" data-anfra-query="strideVsPace"></div></section>
+          <div id="stride-vs-pace-status" class="status"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-anfra-container="module-pace-dist" data-anfra-label="Pace Distribution">
+      <h2 class="module-title">Pace distribution <span class="caption">weekly · runs only</span></h2>
+      <div class="grid2">
+        <div class="card span2" data-anfra-block="pace-blocks" data-anfra-label="Weekly moving time by pace bucket">
+          <header><h2>Weekly moving time by pace bucket <span class="caption">stacked hours · 'unknown' = pace not computable (missing distance or time)</span></h2></header>
+          <section><div id="pace-blocks" class="chart" data-anfra-query="paceBlocksWeekly"></div></section>
+          <div id="pace-blocks-status" class="status"></div>
         </div>
       </div>
     </section>
@@ -324,8 +426,9 @@
     <footer class="caption footer">
       Data source: intervals.icu · HR decoupling computed for runs ≥ 75 min · Aerobic efficiency =
       time-weighted average speed (m/s) ÷ average heart rate (bpm), runs only · Pace in min/km,
-      lower = faster · Fitness (CTL), Fatigue (ATL) and Form (TSB) come from intervals.icu at
-      weekly grain.
+      lower = faster · Cadence in rpm (one-foot cycles/min; ~80 rpm ≈ 160 steps/min) · Stride
+      length = speed × 60 ÷ cadence, only where cadence ≥ 40 rpm · Fitness (CTL), Fatigue (ATL)
+      and Form (TSB) come from intervals.icu at weekly grain.
     </footer>
   </main>
 
@@ -343,6 +446,9 @@
         text: get('--chart-text'),
         grid: get('--chart-grid'),
         cat: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => get(`--chart-cat-${n}`)),
+        surface: { road: get('--chart-road'), trail: get('--chart-trail'), indoor: get('--chart-indoor') },
+        pos: get('--chart-pos'),
+        neg: get('--chart-neg'),
       };
     }
 
@@ -554,9 +660,102 @@
       `,
     });
 
+    // Module: Surface & Stride ------------------------------------------------
+    const surfacePaceTrend = app.createQuery('surfacePaceTrend', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { month: activities.month, surface: activities.run_surface }
+          measures { pace_min_km: run_pace_min_km }
+          filters { activities.sport_group in ['run'] }
+          sorts { month asc }
+        }
+      `,
+    });
+
+    const strideTrend = app.createQuery('strideTrend', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { month: activities.month, surface: activities.run_surface }
+          measures { stride_m: run_stride_m }
+          filters { activities.sport_group in ['run'] }
+          sorts { month asc }
+        }
+      `,
+    });
+
+    const hillinessTrend = app.createQuery('hillinessTrend', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { month: activities.month, surface: activities.run_surface }
+          measures { elev_per_km: run_elev_per_km }
+          filters { activities.sport_group in ['run'] }
+          sorts { month asc }
+        }
+      `,
+    });
+
+    const decouplingBySurface = app.createQuery('decouplingBySurface', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { surface: activities.run_surface }
+          measures { avg_decoupling_pct: decoupling_calc.avg_decoupling, long_runs: decoupling_calc.long_run_count }
+          sorts { surface asc }
+        }
+      `,
+    });
+
+    const strideVsPace = app.createQuery('strideVsPace', {
+      dataset: 'running_analytics',
+      aql: `
+        dimension activities.pace_min_km = case(
+          when: activities.avg_speed_ms > 0, then: 16.6667 / activities.avg_speed_ms,
+          else: null
+        );
+        explore {
+          dimensions { pace_min_km: activities.pace_min_km, stride_m: activities.stride_m, surface: activities.run_surface, name: activities.name }
+          measures { runs: activities.activity_count }
+          filters { activities.sport_group in ['run'] }
+        }
+      `,
+    });
+
+    // Module: Pace Distribution -----------------------------------------------
+    const paceBlocksWeekly = app.createQuery('paceBlocksWeekly', {
+      dataset: 'running_analytics',
+      aql: `
+        dimension activities.pace_bucket_num = case(
+          when: activities.avg_speed_ms is null, then: -1,
+          when: activities.avg_speed_ms > 4.167, then: 0,
+          when: activities.avg_speed_ms > 3.333, then: 1,
+          when: activities.avg_speed_ms > 2.778, then: 2,
+          when: activities.avg_speed_ms > 2.381, then: 3,
+          else: 4
+        );
+        dimension activities.pace_bucket = case(
+          when: activities.avg_speed_ms is null, then: 'unknown',
+          when: activities.avg_speed_ms > 4.167, then: '<4:00',
+          when: activities.avg_speed_ms > 3.333, then: '4-5',
+          when: activities.avg_speed_ms > 2.778, then: '5-6',
+          when: activities.avg_speed_ms > 2.381, then: '6-7',
+          else: '7+'
+        );
+        explore {
+          dimensions { week: activities.week_start, bucket_num: activities.pace_bucket_num, bucket: activities.pace_bucket }
+          measures { hours: run_time_h }
+          filters { activities.sport_group in ['run'] }
+          sorts { week asc, bucket_num asc }
+        }
+      `,
+    });
+
     // Controls ----------------------------------------------------------------
     const dates = app.createFilter('dates', { dataset: 'running_analytics', field: 'activities.date' });
     const sport = app.createFilter('sport', { dataset: 'running_analytics', field: 'activities.sport_group', label: 'Sport' });
+    const surface = app.createFilter('surface', { dataset: 'running_analytics', field: 'activities.run_surface', label: 'Surface' });
 
     // Date range: every query, on the date its grain uses.
     const byDate = { field: 'activities.date' };
@@ -589,6 +788,19 @@
     app.mapControl(sport, monthlyCadence, bySport);
     app.mapControl(sport, monthlyEfficiency, bySport);
     app.mapControl(sport, paceByTemp, bySport);
+    app.mapControl(sport, surfacePaceTrend, bySport);
+    app.mapControl(sport, strideTrend, bySport);
+    app.mapControl(sport, hillinessTrend, bySport);
+    app.mapControl(sport, paceBlocksWeekly, bySport);
+    app.mapControl(sport, strideVsPace, bySport);
+
+    // Surface filter: same grain rule as sport — activities-based queries only, on
+    // activities.run_surface. Weekly all-sport and decoupling_calc queries are left out;
+    // decoupling by surface is already grouped BY surface at its own grain.
+    const bySurface = { field: 'activities.run_surface' };
+    [kpiWeekDist, kpi90d, weeklyRunDist, dailyRuns, sportMix, monthlyPace, monthlyCadence,
+     monthlyEfficiency, paceByTemp, surfacePaceTrend, strideTrend, hillinessTrend,
+     paceBlocksWeekly, strideVsPace].forEach((query) => app.mapControl(surface, query, bySurface));
 
     // Cross-filter: a clicked sport-mix slice filters the activity-based charts and tiles.
     app.mapCrossFilter(sportMix, kpiWeekDist);
@@ -599,6 +811,11 @@
     app.mapCrossFilter(sportMix, monthlyCadence);
     app.mapCrossFilter(sportMix, monthlyEfficiency);
     app.mapCrossFilter(sportMix, paceByTemp);
+    app.mapCrossFilter(sportMix, surfacePaceTrend);
+    app.mapCrossFilter(sportMix, strideTrend);
+    app.mapCrossFilter(sportMix, hillinessTrend);
+    app.mapCrossFilter(sportMix, paceBlocksWeekly);
+    app.mapCrossFilter(sportMix, strideVsPace);
 
     document.getElementById('user').textContent = `Signed in as ${Anfra.user.name}`;
 
@@ -606,7 +823,8 @@
     const charts = {};
     for (const id of ['fitness-trend', 'load-ramp', 'weekly-run-dist', 'daily-heatmap', 'sport-mix',
                       'weekly-category', 'monthly-pace', 'monthly-cadence', 'monthly-efficiency',
-                      'decoupling-trend', 'pace-by-temp']) {
+                      'surface-pace-trend', 'stride-trend', 'hilliness-trend', 'decoupling-by-surface',
+                      'stride-vs-pace', 'pace-blocks', 'decoupling-trend', 'pace-by-temp']) {
       charts[id] = echarts.init(document.getElementById(id));
     }
 
@@ -687,6 +905,9 @@
         legend: { top: 0, textStyle: { color: theme.text } },
         grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
         tooltip: { trigger: 'axis' },
+        // TSB semantic colors: vermilion below zero (fatigued), indigo above (fresh).
+        visualMap: { show: false, type: 'piecewise', seriesIndex: 2,
+          pieces: [{ lt: 0, color: theme.neg }, { gte: 0, color: theme.pos }] },
         xAxis: { type: 'category', data: rows.map((r) => day(r.week)), ...axisStyle(theme) },
         yAxis: [
           { type: 'value', ...axisStyle(theme) },
@@ -700,7 +921,7 @@
             lineStyle: { color: theme.cat[3], width: 2 }, itemStyle: { color: theme.cat[3] },
             data: rows.map((r) => num(r.atl)) },
           { name: 'TSB', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 1,
-            lineStyle: { color: theme.cat[2], width: 2, type: 'dashed' }, itemStyle: { color: theme.cat[2] },
+            lineStyle: { color: theme.pos, width: 2, type: 'dashed' }, itemStyle: { color: theme.pos },
             data: rows.map((r) => num(r.tsb)),
             markLine: { silent: true, symbol: 'none',
               lineStyle: { color: theme.grid, type: 'solid' },
@@ -762,7 +983,8 @@
       const rows = dailyRuns.result.rows;
       const points = rows.map((r) => [day(r.day), num(r.run_km) || 0]);
       const maxKm = Math.max(...points.map((p) => p[1]), 1);
-      const ramp = theme.dark ? ['#332b47', '#6a52a8', '#a98af0'] : ['#ede7f6', '#b49ae4', '#7c4dce'];
+      // Calendar ramp: cream → indigo (dark mode: card surface → mid blue).
+      const ramp = theme.dark ? ['#16283C', '#2C5F8A', '#3E7CB1'] : ['#EFEAD8', '#A3C6DF', '#3E7CB1', '#16324F'];
       charts['daily-heatmap'].setOption({
         animation: false,
         textStyle: { color: theme.text },
@@ -884,6 +1106,113 @@
       });
     }
 
+    // ---- Surface & stride -----------------------------------------------------
+    const SURFACES = ['road', 'trail', 'indoor'];
+
+    // Pivot [month, surface, value] rows into one series per surface. Months where a surface
+    // has no rows stay null so the line breaks (connectNulls: false) instead of lying.
+    function pivotSurface (rows, alias) {
+      const months = [...new Set(rows.map((r) => String(r.month)))].sort();
+      const cell = {};
+      rows.forEach((r) => { cell[String(r.month) + '|' + r.surface] = num(r[alias]); });
+      return {
+        months,
+        series: SURFACES
+          .filter((s) => rows.some((r) => r.surface === s))
+          .map((s) => ({ name: s, data: months.map((m) => cell[m + '|' + s] ?? null) })),
+      };
+    }
+
+    function renderSurfaceLine (query, chartId, alias, opts, theme) {
+      const { months, series } = pivotSurface(query.result.rows, alias);
+      charts[chartId].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
+        tooltip: { trigger: 'axis', valueFormatter: opts.tooltipFormatter },
+        xAxis: { type: 'category', data: months.map((m) => m.slice(0, 7)), ...axisStyle(theme) },
+        yAxis: { type: 'value', axisLabel: { color: theme.text, formatter: opts.axisFormatter }, splitLine: axisStyle(theme).splitLine },
+        series: series.map((s) => ({
+          name: s.name, type: 'line', smooth: true, connectNulls: false,
+          showSymbol: true, symbolSize: 5,
+          lineStyle: { color: theme.surface[s.name], width: 2 },
+          itemStyle: { color: theme.surface[s.name] },
+          data: s.data,
+        })),
+      });
+    }
+
+    function renderDecouplingBySurface (theme) {
+      const rows = decouplingBySurface.result.rows;
+      charts['decoupling-by-surface'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        grid: { left: 8, right: 8, top: 16, bottom: 8, containLabel: true },
+        tooltip: { formatter: (p) => `${p.name} · ${fmt1.format(p.value)}% avg decoupling · ${fmt0.format(p.data.runs)} long runs` },
+        xAxis: { type: 'category', data: rows.map((r) => r.surface), ...axisStyle(theme) },
+        yAxis: { type: 'value', axisLabel: { color: theme.text, formatter: (v) => fmt0.format(v) + '%' }, splitLine: axisStyle(theme).splitLine },
+        series: [{
+          type: 'bar', barMaxWidth: 56,
+          data: rows.map((r) => ({
+            value: num(r.avg_decoupling_pct), runs: num(r.long_runs),
+            itemStyle: { color: theme.surface[r.surface] || theme.cat[0], borderRadius: [3, 3, 0, 0] },
+          })),
+        }],
+      });
+    }
+
+    function renderStrideVsPace (theme) {
+      const rows = strideVsPace.result.rows.filter((r) => num(r.stride_m) != null);
+      const series = SURFACES
+        .map((s) => ({
+          name: s, type: 'scatter', symbolSize: 8,
+          itemStyle: { color: theme.surface[s], opacity: 0.75 },
+          data: rows.filter((r) => r.surface === s)
+            .map((r) => ({ value: [num(r.pace_min_km), num(r.stride_m)], name: r.name })),
+        }))
+        .filter((s) => s.data.length > 0);
+      charts['stride-vs-pace'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
+        tooltip: { formatter: (p) => `${p.data.name}<br>${p.seriesName} · ${paceFmt(p.data.value[0])} /km · ${fmt2.format(p.data.value[1])} m stride` },
+        xAxis: { type: 'value', name: 'pace (min/km)', nameLocation: 'middle', nameGap: 28,
+                 nameTextStyle: { color: theme.text },
+                 axisLabel: { color: theme.text, formatter: paceFmt }, splitLine: axisStyle(theme).splitLine },
+        yAxis: { type: 'value', name: 'stride (m)', nameLocation: 'middle', nameGap: 36,
+                 nameTextStyle: { color: theme.text },
+                 axisLabel: { color: theme.text, formatter: (v) => fmt1.format(v) }, splitLine: axisStyle(theme).splitLine },
+        series,
+      });
+    }
+
+    function renderPaceBlocks (theme) {
+      const rows = paceBlocksWeekly.result.rows;
+      const weeks = [...new Set(rows.map((r) => day(r.week)))].sort();
+      // bucket_num -1 ('unknown') sorts first in the query but renders last on the stack.
+      const buckets = [...new Map(rows.map((r) => [num(r.bucket_num), r.bucket])).entries()]
+        .sort((a, b) => (a[0] === -1 ? 1 : b[0] === -1 ? -1 : a[0] - b[0]))
+        .map(([, bucket]) => bucket);
+      const cell = {};
+      rows.forEach((r) => { cell[day(r.week) + '|' + r.bucket] = num(r.hours); });
+      charts['pace-blocks'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
+        tooltip: { trigger: 'axis', valueFormatter: (v) => fmt1.format(v) + ' h' },
+        xAxis: { type: 'category', data: weeks, ...axisStyle(theme) },
+        yAxis: { type: 'value', axisLabel: { color: theme.text, formatter: (v) => fmt0.format(v) + ' h' }, splitLine: axisStyle(theme).splitLine },
+        series: buckets.map((bucket, i) => ({
+          name: bucket, type: 'bar', stack: 'hours', barMaxWidth: 26,
+          itemStyle: { color: bucket === 'unknown' ? theme.cat[7] : theme.cat[i] },
+          data: weeks.map((w) => cell[w + '|' + bucket] ?? 0),
+        })),
+      });
+    }
+
     function render () {
       renderStatus(kpiFitness, 'kpi-ctl-status', 'No weekly data');
       renderStatus(kpiFitness, 'kpi-atl-status', 'No weekly data');
@@ -900,12 +1229,19 @@
       renderStatus(monthlyPace, 'monthly-pace-status', 'No runs in this range');
       renderStatus(monthlyCadence, 'monthly-cadence-status', 'No runs with cadence');
       renderStatus(monthlyEfficiency, 'monthly-efficiency-status', 'No runs with heart rate');
+      renderStatus(surfacePaceTrend, 'surface-pace-trend-status', 'No runs in this range');
+      renderStatus(strideTrend, 'stride-trend-status', 'No runs with stride data in this range');
+      renderStatus(hillinessTrend, 'hilliness-trend-status', 'No runs in this range');
+      renderStatus(decouplingBySurface, 'decoupling-by-surface-status', 'No long runs in this range');
+      renderStatus(strideVsPace, 'stride-vs-pace-status', 'No runs with stride + pace data');
+      renderStatus(paceBlocksWeekly, 'pace-blocks-status', 'No runs in this range');
       renderStatus(decouplingTrend, 'decoupling-trend-status', 'No long runs in this range');
       renderStatus(paceByTemp, 'pace-by-temp-status', 'No runs with recorded temperature');
 
       [kpiFitness, kpiWeekDist, kpi90d, kpiDecoupling, fitnessTrend, loadRamp, weeklyRunDist,
        dailyRuns, sportMix, weeklyCategory, monthlyPace, monthlyCadence, monthlyEfficiency,
-       decouplingTrend, paceByTemp].forEach(logFirstResult);
+       surfacePaceTrend, strideTrend, hillinessTrend, decouplingBySurface, strideVsPace,
+       paceBlocksWeekly, decouplingTrend, paceByTemp].forEach(logFirstResult);
 
       const theme = chartTheme();
       kpis(theme);
@@ -917,10 +1253,25 @@
       if (weeklyCategory.result) renderWeeklyCategory(theme);
       if (monthlyPace.result) renderMonthlyLine(monthlyPace, 'monthly-pace', 'pace_min_km', 2,
         { tooltipFormatter: (v) => paceFmt(v) + ' /km', axisFormatter: paceFmt }, theme);
-      if (monthlyCadence.result) renderMonthlyLine(monthlyCadence, 'monthly-cadence', 'cadence_spm', 5,
-        { tooltipFormatter: (v) => fmt0.format(v) + ' spm', axisFormatter: (v) => fmt0.format(v) }, theme);
+      if (monthlyCadence.result) renderMonthlyLine(monthlyCadence, 'monthly-cadence', 'cadence_spm', 3,
+        { tooltipFormatter: (v) => fmt0.format(v) + ' rpm', axisFormatter: (v) => fmt0.format(v) }, theme);
       if (monthlyEfficiency.result) renderMonthlyLine(monthlyEfficiency, 'monthly-efficiency', 'aerobic_efficiency', 4,
         { tooltipFormatter: (v) => fmt2.format(v), axisFormatter: (v) => fmt2.format(v) }, theme);
+      if (surfacePaceTrend.result && surfacePaceTrend.result.rows.length) {
+        renderSurfaceLine(surfacePaceTrend, 'surface-pace-trend', 'pace_min_km',
+          { tooltipFormatter: (v) => paceFmt(v) + ' /km', axisFormatter: paceFmt }, theme);
+      }
+      if (strideTrend.result && strideTrend.result.rows.length) {
+        renderSurfaceLine(strideTrend, 'stride-trend', 'stride_m',
+          { tooltipFormatter: (v) => fmt2.format(v) + ' m', axisFormatter: (v) => fmt2.format(v) }, theme);
+      }
+      if (hillinessTrend.result && hillinessTrend.result.rows.length) {
+        renderSurfaceLine(hillinessTrend, 'hilliness-trend', 'elev_per_km',
+          { tooltipFormatter: (v) => fmt1.format(v) + ' m/km', axisFormatter: (v) => fmt1.format(v) }, theme);
+      }
+      if (decouplingBySurface.result && decouplingBySurface.result.rows.length) renderDecouplingBySurface(theme);
+      if (strideVsPace.result && strideVsPace.result.rows.length) renderStrideVsPace(theme);
+      if (paceBlocksWeekly.result && paceBlocksWeekly.result.rows.length) renderPaceBlocks(theme);
       if (decouplingTrend.result) renderDecouplingTrend(theme);
       if (paceByTemp.result) renderPaceByTemp(theme);
     }
@@ -958,6 +1309,25 @@
     sportBox.addEventListener('change', (event) => {
       const values = Array.isArray(event.detail.value) ? event.detail.value : [];
       sport.setCondition({ operator: 'is', values });
+      app.execute();
+    });
+
+    // Surface multi-select combobox: fixed road/trail/indoor options, so no loadOptions().
+    const surfaceBox = document.getElementById('surface-combobox');
+    const surfaceList = document.getElementById('surface-listbox');
+    domReady.then(() => {
+      surfaceList.replaceChildren(...SURFACES.map((value) => {
+        const option = document.createElement('div');
+        option.setAttribute('role', 'option');
+        option.dataset.value = value;
+        option.textContent = value;
+        return option;
+      }));
+      surfaceBox.refresh();
+    });
+    surfaceBox.addEventListener('change', (event) => {
+      const values = Array.isArray(event.detail.value) ? event.detail.value : [];
+      surface.setCondition({ operator: 'is', values });
       app.execute();
     });
 

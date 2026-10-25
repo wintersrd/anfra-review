@@ -121,9 +121,23 @@ Dataset running_analytics {
   metric run_avg_cadence {
     label: 'Run Avg Cadence'
     type: 'number'
-    description: 'Moving-time-weighted average cadence across runs.'
+    description: 'Moving-time-weighted average cadence across runs (rpm, one-foot cycles/min).'
     definition: @aql ((activities | sum(activities.avg_cadence * activities.moving_time_s)) / activities.total_time_s) | where(activities.sport_group in ['run']) ;;
-    format: '#,##0 "spm"'
+    format: '#,##0 "rpm"'
+  }
+  metric run_stride_m {
+    label: 'Run Stride Length'
+    type: 'number'
+    description: 'Time-weighted average two-step stride length (m) across runs with usable cadence. Trail terrain shortens stride.'
+    definition: @aql (activities | sum(activities.stride_m * activities.stride_time_s)) / (activities | sum(activities.stride_time_s)) | where(activities.sport_group in ['run']) ;;
+    format: '#,##0.00 "m"'
+  }
+  metric run_elev_per_km {
+    label: 'Run Elevation per km'
+    type: 'number'
+    description: 'Elevation gain per km across runs — a hilliness index. Trail runs rate far higher.'
+    definition: @aql (activities | sum(activities.elev_gain_m)) / (activities | sum(activities.distance_m)) * 1000.0 | where(activities.sport_group in ['run']) ;;
+    format: '#,##0 "m/km"'
   }
   metric run_aerobic_efficiency {
     label: 'Run Aerobic Efficiency'

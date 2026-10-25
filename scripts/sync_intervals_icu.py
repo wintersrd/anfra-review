@@ -396,6 +396,22 @@ def build_db() -> None:
             f"'{RAW / filename}', header=true, nullstr='', columns={{{cols}}});"
         )
     statements.append("CHECKPOINT;")
+    # Derived columns: run surface split + stride length (cadence is rpm,
+    # i.e. one-foot cycles/min, so stride (two steps) = speed_m_min / rpm).
+    # Guard cadence > 40 rpm: run/walk activities pollute avg cadence low.
+    statements += [
+        "ALTER TABLE activities ADD COLUMN run_surface TEXT;",
+        "UPDATE activities SET run_surface = CASE type "
+        "WHEN 'TrailRun' THEN 'trail' WHEN 'VirtualRun' THEN 'indoor' "
+        "WHEN 'Run' THEN 'road' END WHERE sport_group = 'run';",
+        "ALTER TABLE activities ADD COLUMN stride_m DOUBLE;",
+        "UPDATE activities SET stride_m = CASE "
+        "WHEN avg_cadence > 40 AND avg_speed_ms > 0 "
+        "THEN avg_speed_ms * 60.0 / avg_cadence END;",
+        "ALTER TABLE activities ADD COLUMN stride_time_s DOUBLE;",
+        "UPDATE activities SET stride_time_s = CASE "
+        "WHEN avg_cadence > 40 AND avg_speed_ms > 0 THEN moving_time_s END;",
+    ]
     # anfra embeds an older DuckDB that cannot read files written in DuckDB 2.x's
     # new default storage format. Build in a temp file, then re-export into the
     # final DB using the widely-readable v0.10.0 storage format (readable by

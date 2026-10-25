@@ -47,6 +47,26 @@ Model activities {
     description: 'run / ride / strength / walk / yoga / row / other'
     definition: @sql {{ #SOURCE.sport_group }};;
   }
+  dimension run_surface {
+    label: 'Run Surface'
+    type: 'text'
+    description: 'road / trail / indoor — derived from activity type, runs only'
+    definition: @sql {{ #SOURCE.run_surface }};;
+  }
+  dimension stride_m {
+    label: 'Stride Length'
+    type: 'number'
+    hidden: true
+    description: 'Two-step stride length in meters; null when cadence missing or polluted (< 40 rpm).'
+    definition: @sql {{ #SOURCE.stride_m }};;
+  }
+  dimension stride_time_s {
+    label: 'Stride Time'
+    type: 'number'
+    hidden: true
+    description: 'Moving time for rows with a valid stride; weight for stride averaging.'
+    definition: @sql {{ #SOURCE.stride_time_s }};;
+  }
   dimension type {
     label: 'Activity Type'
     type: 'text'
