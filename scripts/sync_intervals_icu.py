@@ -444,6 +444,10 @@ def build_db() -> None:
     )
     shutil.rmtree(export_dir)
     build_path.unlink()
+    # Reader snapshot for consumers that must not fight the anfra server for the
+    # write lock (e.g. the Streamlit app opens this read-only).
+    reader_path = DB_PATH.with_name("running_reader.duckdb")
+    shutil.copy2(DB_PATH, reader_path)
 
 
 def main() -> int:

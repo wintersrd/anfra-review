@@ -1,0 +1,13 @@
+[project]
+name = "running-analytics"
+version = "0.1.0"
+description = "Running & training analytics on intervals.icu data (anfra app + Streamlit app)"
+requires-python = ">=3.12"
+dependencies = [
+    "streamlit>=1.40",
+    "plotly>=5.24",
+    "duckdb>=1.1",
+]
+
+[tool.uv]
+package = false

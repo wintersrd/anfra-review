@@ -11,8 +11,10 @@ DuckDB file.
 | `scripts/sync_intervals_icu.py` | Full-history sync from the intervals.icu API → `data/raw/*` → `data/running.duckdb` |
 | `models/*.model.aml` | Semantic models: `activities`, `weekly_summary`, `weekly_by_category`, `decoupling_calc` |
 | `datasets/running_analytics.dataset.aml` | Dataset with derived metrics (pace, weighted HR, run-only filters, aerobic efficiency) |
-| `docs/anfra-framework-review.md` | anfra framework review: strengths, weaknesses, issues | `apps/running.html` | solutions |
+| `docs/anfra-framework-review.md` | anfra framework review: strengths, weaknesses, issues → solutions |
 | `apps/running.html` | One-page dashboard: fitness (CTL/ATL/TSB), volume & consistency, speed trends, surface splits (road/trail/indoor), stride length & pace distribution, HR decoupling, hilliness, pace vs temperature — Great Wave (ukiyo-e) themed |
+| `streamlit_app/` | Streamlit port of the same dashboard (Plotly, day/night toggle, sport cross-filter) — see below |
+| `.streamlit/config.toml` | Streamlit base theme (Great Wave light palette) |
 
 Schema is sport-agnostic by design (v2 will add cycling + strength views):
 `activities` carries every sport with a `sport_group` dimension and watts fields.
@@ -31,6 +33,20 @@ the plain `duckdb` CLI (use `--build-only`).
 ~/.anfra/bin/anfra validate                      # semantic layer check
 ~/.anfra/bin/anfra serve                         # http://127.0.0.1:7878/apps/running
 ```
+
+## Streamlit app
+
+Same data, same 21-query surface, Plotly charts, Great Wave styling:
+
+```bash
+uv sync                                          # creates .venv (streamlit, plotly, duckdb)
+uv run streamlit run streamlit_app/app.py        # http://localhost:8501
+```
+
+The app reads `data/running_reader.duckdb` — a read-only snapshot written
+automatically after every DB build, so it never fights the anfra server for
+the DuckDB write lock. Night mode and the sport cross-filter (click a slice in
+"Hours by sport") live in-app; date/sport/surface filters are in the sidebar.
 
 ## Notes
 

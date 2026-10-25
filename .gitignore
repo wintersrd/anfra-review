@@ -4,3 +4,6 @@
 data/running.duckdb
 __pycache__/
 *.pyc
+data/running_reader.duckdb
+.venv/
+uv.lock
