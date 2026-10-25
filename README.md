@@ -23,6 +23,10 @@ cp .env.example .env        # add your INTERVALS_ICU_API_KEY (never committed)
 python3 scripts/sync_intervals_icu.py            # full backfill (~a decade)
 # optional: compute HR decoupling for long runs since a date (streams API):
 python3 scripts/sync_intervals_icu.py --decoupling-since 2024-01-01
+
+The DB is written in DuckDB storage format `v0.10.0` automatically — anfra's embedded
+DuckDB engine can't read DuckDB 2.x's new default format, so don't rebuild the file with
+the plain `duckdb` CLI (use `--build-only`).
 ~/.anfra/bin/anfra validate                      # semantic layer check
 ~/.anfra/bin/anfra serve                         # http://127.0.0.1:7878/apps/running
 ```

@@ -22,6 +22,7 @@ import base64
 import csv
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -395,15 +396,38 @@ def build_db() -> None:
             f"'{RAW / filename}', header=true, nullstr='', columns={{{cols}}});"
         )
     statements.append("CHECKPOINT;")
-    if DB_PATH.exists():
-        DB_PATH.unlink()
+    # anfra embeds an older DuckDB that cannot read files written in DuckDB 2.x's
+    # new default storage format. Build in a temp file, then re-export into the
+    # final DB using the widely-readable v0.10.0 storage format (readable by
+    # DuckDB >= 0.10, including anfra's embedded driver and the 2.x CLI).
+    build_path = DB_PATH.with_suffix(".build.duckdb")
+    export_dir = DB_PATH.parent / ".build_export"
+    if build_path.exists():
+        build_path.unlink()
+    if export_dir.exists():
+        shutil.rmtree(export_dir)
     subprocess.run(
-        ["duckdb", str(DB_PATH)],
+        ["duckdb", str(build_path)],
         input="\n".join(statements),
         text=True,
         check=True,
         capture_output=True,
     )
+    subprocess.run(
+        ["duckdb", str(build_path), "-no-agent", "-c",
+         f"EXPORT DATABASE '{export_dir}' (FORMAT parquet);"],
+        check=True, capture_output=True,
+    )
+    if DB_PATH.exists():
+        DB_PATH.unlink()
+    subprocess.run(
+        ["duckdb", "-no-agent", "-c",
+         f"ATTACH '{DB_PATH}' AS final (STORAGE_VERSION 'v0.10.0');"
+         f"USE final; IMPORT DATABASE '{export_dir}';"],
+        check=True, capture_output=True,
+    )
+    shutil.rmtree(export_dir)
+    build_path.unlink()
 
 
 def main() -> int:
