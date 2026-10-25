@@ -75,9 +75,10 @@ def surface_color(theme: dict[str, Any], surface: str) -> str:
     return theme["surface"].get(surface, theme["muted"])
 
 
-def apply_layout(fig: go.Figure, theme: dict[str, Any], title: str) -> go.Figure:
+def apply_layout(fig: go.Figure, theme: dict[str, Any], title: str, height: int = 300) -> go.Figure:
     """Apply the Great Wave look to a figure (transparent backgrounds)."""
     fig.update_layout(
+        height=height,
         title=dict(text=title, font=dict(size=15, color=theme["ink"])),
         font=dict(family="Inter, -apple-system, sans-serif", color=theme["ink"], size=12),
         paper_bgcolor="rgba(0,0,0,0)",

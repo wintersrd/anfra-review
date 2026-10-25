@@ -216,11 +216,32 @@ def line(
     )
 
 
-def empty_or(fig: go.Figure, df: pd.DataFrame, title: str) -> None:
+_pending: list[tuple[go.Figure, pd.DataFrame, str]] = []
+
+
+def queue(fig: go.Figure, df: pd.DataFrame, key: str) -> None:
+    """Stage a chart for side-by-side rendering (mirrors the anfra grid)."""
+    _pending.append((fig, df, key))
+
+
+def _render_cell(cell: tuple[go.Figure, pd.DataFrame, str] | None):
+    if cell is None:
+        st.info("No data in the selected window.")
+        return None
+    fig, df, key = cell
     if df is None or len(df) == 0:
-        st.info(f"No data for “{title}” in the selected window.")
-        return
-    st.plotly_chart(fig, width="stretch", key=title)
+        st.info(f"No data for “{key}” in the selected window.")
+        return None
+    return st.plotly_chart(fig, width="stretch", key=key)
+
+
+def flush_row(count: int) -> None:
+    """Render queued charts in a row of `count` cells; empty cells show info."""
+    cols = st.columns(count)
+    for col in cols:
+        cell = _pending.pop(0) if _pending else None
+        with col:
+            _render_cell(cell)
 
 
 # --------------------------------------------------------------------------
@@ -249,9 +270,7 @@ if len(ft):
                     zerolinecolor=theme["grid"]),
         hovermode="x unified",
     )
-    empty_or(apply_layout(fig, theme, "Fitness trend — CTL · ATL · TSB (weekly)"), ft, "Fitness trend")
-else:
-    st.info("No weekly data in the selected window.")
+    queue(apply_layout(fig, theme, "Fitness trend — CTL · ATL · TSB (weekly)"), ft, "Fitness trend")
 
 lr = _run_query(q.load_ramp, date_from, date_to)
 if len(lr):
@@ -270,7 +289,9 @@ if len(lr):
         yaxis2=dict(title="Ramp rate", overlaying="y", side="right"),
         barmode="overlay",
     )
-    empty_or(apply_layout(fig, theme, "Weekly load & ramp rate"), lr, "Weekly load")
+    queue(apply_layout(fig, theme, "Weekly load & ramp rate"), lr, "Weekly load")
+
+flush_row(2)
 
 # --------------------------------------------------------------------------
 # Volume & consistency
@@ -292,14 +313,14 @@ if len(wr):
         yaxis=dict(title="km"),
         yaxis2=dict(title="Elevation (m)", overlaying="y", side="right"),
     )
-    empty_or(apply_layout(fig, theme, "Weekly run distance & elevation"), wr, "Weekly run distance")
+    queue(apply_layout(fig, theme, "Weekly run distance & elevation"), wr, "Weekly run distance")
 
 dr = _run_query(q.daily_runs, date_from, date_to, effective_sports, surfaces)
 if len(dr):
     days = pd.to_datetime(dr["day"])
     weeks = pd.date_range(days.min().to_period("W-SUN").start_time, days.max(), freq="W-SUN")
     pivot = dr.assign(week=days.dt.to_period("W-SUN").dt.start_time).pivot_table(
-        index=days.dt.dayofweek, columns="week", values="km", aggfunc="sum"
+        index=days.dt.day_of_week, columns="week", values="km", aggfunc="sum"
     )
     pivot = pivot.reindex(columns=pd.DatetimeIndex(weeks))
     fig = go.Figure(
@@ -313,9 +334,10 @@ if len(dr):
             colorbar=dict(title="km", thickness=10, len=0.6),
         )
     )
-    empty_or(apply_layout(fig, theme, "Daily run distance — calendar heatmap"), dr, "Daily runs")
+    queue(apply_layout(fig, theme, "Daily run distance — calendar heatmap"), dr, "Daily runs")
 
 sm = _run_query(q.sport_mix, date_from, date_to)
+donut = None
 if len(sm):
     fig = go.Figure(
         go.Pie(
@@ -331,34 +353,7 @@ if len(sm):
             hovertemplate="%{label}: %{value:.1f} h<extra></extra>",
         )
     )
-    sel = st.plotly_chart(
-        apply_layout(fig, theme, "Hours by sport — click a slice to cross-filter"),
-        width="stretch",
-        on_select="rerun",
-        selection_mode=("points",),
-        key="sport_mix",
-    )
-    picked = None
-    try:
-        pts = sel.selection.points if sel and sel.selection else []
-        if pts:
-            picked = pts[0].customdata
-    except (AttributeError, KeyError, TypeError):
-        picked = None
-    if picked != focus_sport:
-        st.session_state.focus_sport = picked
-        if picked:
-            st.rerun()
-    if focus_sport:
-        st.info(
-            f"Cross-filter active: **{SPORT_LABELS.get(focus_sport, focus_sport)}** "
-            f"(click the slice again or press clear to reset)."
-        )
-        if st.button("Clear cross-filter"):
-            st.session_state.focus_sport = None
-            st.rerun()
-else:
-    st.info("No activities in the selected window.")
+    donut = apply_layout(fig, theme, "Hours by sport — click a slice to cross-filter")
 
 wc = _run_query(q.weekly_category, date_from, date_to)
 if len(wc):
@@ -372,7 +367,45 @@ if len(wc):
                        marker_color=CAT[i % len(CAT)])
             )
     fig.update_layout(barmode="stack", hovermode="x unified")
-    empty_or(apply_layout(fig, theme, "Weekly hours by sport (stacked)"), wc, "Weekly hours")
+    queue(apply_layout(fig, theme, "Weekly hours by sport (stacked)"), wc, "Weekly hours")
+
+# anfra grid row 1: weekly run distance | sport-mix donut (cross-filter source)
+left, right = st.columns(2)
+with left:
+    _render_cell(_pending.pop(0) if _pending else None)
+with right:
+    if donut is not None:
+        sel = st.plotly_chart(
+            donut,
+            width="stretch",
+            on_select="rerun",
+            selection_mode=("points",),
+            key="sport_mix",
+        )
+        picked = None
+        try:
+            pts = sel.selection.points if sel and sel.selection else []
+            if pts:
+                picked = pts[0].customdata
+        except (AttributeError, KeyError, TypeError):
+            picked = None
+        if picked != focus_sport:
+            st.session_state.focus_sport = picked
+            if picked:
+                st.rerun()
+        if focus_sport:
+            st.info(
+                f"Cross-filter active: **{SPORT_LABELS.get(focus_sport, focus_sport)}** "
+                f"(click the slice again or press clear to reset)."
+            )
+            if st.button("Clear cross-filter"):
+                st.session_state.focus_sport = None
+                st.rerun()
+    else:
+        st.info("No activities in the selected window.")
+
+# row 2: daily heatmap | weekly category
+flush_row(2)
 
 # --------------------------------------------------------------------------
 # Speed & progression
@@ -384,19 +417,21 @@ mp = _run_query(q.monthly_pace, date_from, date_to, effective_sports, surfaces)
 if len(mp):
     fig = go.Figure(line(mp["month"], mp["pace_min_km"], "Pace", CAT[0]))
     fig.update_traces(hovertemplate="%{x|%Y-%m}: %{y:.2f} min/km<extra></extra>")
-    empty_or(apply_layout(fig, theme, "Monthly run pace (min/km, lower is better)"), mp, "Monthly pace")
+    queue(apply_layout(fig, theme, "Monthly run pace (min/km, lower is better)", 280), mp, "Monthly pace")
 
 mc = _run_query(q.monthly_cadence, date_from, date_to, effective_sports, surfaces)
 if len(mc):
     fig = go.Figure(line(mc["month"], mc["rpm"], "Cadence", CAT[6]))
     fig.update_traces(hovertemplate="%{x|%Y-%m}: %{y:.1f} rpm<extra></extra>")
-    empty_or(apply_layout(fig, theme, "Monthly cadence (rpm)"), mc, "Monthly cadence")
+    queue(apply_layout(fig, theme, "Monthly cadence (rpm)", 280), mc, "Monthly cadence")
 
 me = _run_query(q.monthly_efficiency, date_from, date_to, effective_sports, surfaces)
 if len(me):
     fig = go.Figure(line(me["month"], me["aerobic_efficiency"], "Aerobic efficiency", CAT[2]))
     fig.update_traces(hovertemplate="%{x|%Y-%m}: %{y:.3f} m/s per bpm<extra></extra>")
-    empty_or(apply_layout(fig, theme, "Aerobic efficiency (m/s per bpm, higher is better)"), me, "Aerobic efficiency")
+    queue(apply_layout(fig, theme, "Aerobic efficiency (m/s per bpm, higher is better)", 280), me, "Aerobic efficiency")
+
+flush_row(3)
 
 # --------------------------------------------------------------------------
 # Surface & stride
@@ -413,7 +448,7 @@ if len(sp):
             fig.add_trace(line(sub["month"], sub["pace_min_km"], f"{s.capitalize()} pace",
                                surface_color(theme, s)))
     fig.update_layout(hovermode="x unified")
-    empty_or(apply_layout(fig, theme, "Monthly pace by surface"), sp, "Pace by surface")
+    queue(apply_layout(fig, theme, "Monthly pace by surface"), sp, "Pace by surface")
 
 stt = _run_query(q.stride_trend, date_from, date_to, effective_sports, surfaces)
 if len(stt):
@@ -424,7 +459,9 @@ if len(stt):
             fig.add_trace(line(sub["month"], sub["stride_m"], f"{s.capitalize()} stride",
                                surface_color(theme, s)))
     fig.update_layout(hovermode="x unified")
-    empty_or(apply_layout(fig, theme, "Monthly stride length by surface (m)"), stt, "Stride trend")
+    queue(apply_layout(fig, theme, "Monthly stride length by surface (m)"), stt, "Stride trend")
+
+flush_row(2)
 
 ht = _run_query(q.hilliness_trend, date_from, date_to, effective_sports, surfaces)
 if len(ht):
@@ -435,7 +472,7 @@ if len(ht):
             fig.add_trace(line(sub["month"], sub["elev_per_km"], f"{s.capitalize()} m/km",
                                surface_color(theme, s)))
     fig.update_layout(hovermode="x unified")
-    empty_or(apply_layout(fig, theme, "Monthly elevation gain per km by surface"), ht, "Hilliness trend")
+    queue(apply_layout(fig, theme, "Monthly elevation gain per km by surface"), ht, "Hilliness trend")
 
 ds = _run_query(q.decoupling_by_surface, date_from, date_to)
 if len(ds):
@@ -449,7 +486,9 @@ if len(ds):
             hovertemplate="%{x}: %{y:.1f}% avg decoupling · %{customdata} long runs<extra></extra>",
         )
     )
-    empty_or(apply_layout(fig, theme, "HR decoupling by surface (long runs)"), ds, "Decoupling by surface")
+    queue(apply_layout(fig, theme, "HR decoupling by surface (long runs)"), ds, "Decoupling by surface")
+
+flush_row(2)
 
 svp = _run_query(q.stride_vs_pace, date_from, date_to, effective_sports, surfaces)
 if len(svp):
@@ -468,7 +507,9 @@ if len(svp):
     fig.update_layout(
         xaxis=dict(title="Pace (min/km)"), yaxis=dict(title="Stride (m)"),
     )
-    empty_or(apply_layout(fig, theme, "Stride vs pace, per activity"), svp, "Stride vs pace")
+    queue(apply_layout(fig, theme, "Stride vs pace, per activity", 340), svp, "Stride vs pace")
+
+flush_row(1)
 
 # --------------------------------------------------------------------------
 # Pace distribution
@@ -491,7 +532,9 @@ if len(pb):
                        marker_color=bucket_colors[bucket])
             )
     fig.update_layout(barmode="stack", hovermode="x unified")
-    empty_or(apply_layout(fig, theme, "Weekly hours by pace block (min/km)"), pb, "Pace blocks")
+    queue(apply_layout(fig, theme, "Weekly hours by pace block (min/km)", 340), pb, "Pace blocks")
+
+flush_row(1)
 
 # --------------------------------------------------------------------------
 # Environment
@@ -513,7 +556,7 @@ if len(dt_df):
     fig.add_hline(y=avg, line_color=theme["ink"], line_dash="dash", line_width=1,
                   annotation_text=f"avg {avg:+.1f}%")
     fig.update_layout(yaxis=dict(title="Decoupling (%)"))
-    empty_or(apply_layout(fig, theme, "HR decoupling trend (positive = HR drift / fatigue)"), dt_df, "Decoupling trend")
+    queue(apply_layout(fig, theme, "HR decoupling trend (positive = HR drift / fatigue)"), dt_df, "Decoupling trend")
 
 pt = _run_query(q.pace_by_temp, date_from, date_to, effective_sports, surfaces)
 if len(pt):
@@ -526,7 +569,9 @@ if len(pt):
         )
     )
     fig.update_layout(yaxis=dict(title="Pace (min/km)"))
-    empty_or(apply_layout(fig, theme, "Pace by temperature (5°C buckets)"), pt, "Pace by temperature")
+    queue(apply_layout(fig, theme, "Pace by temperature (5°C buckets)"), pt, "Pace by temperature")
+
+flush_row(2)
 
 st.divider()
 st.caption(
