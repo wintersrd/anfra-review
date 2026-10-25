@@ -7,7 +7,7 @@ Model decoupling_calc {
 
   dimension activity_id {
     label: 'Activity Id'
-    type: 'number'
+    type: 'text'
     primary_key: true
     definition: @sql {{ #SOURCE.activity_id }};;
   }

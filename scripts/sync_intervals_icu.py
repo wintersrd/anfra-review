@@ -50,7 +50,7 @@ SPORT_GROUP = {
 }
 
 ACTIVITY_COLUMNS = [
-    ("id", "BIGINT"), ("name", "VARCHAR"), ("start_local", "TIMESTAMP"),
+    ("id", "VARCHAR"), ("name", "VARCHAR"), ("start_local", "TIMESTAMP"),
     ("start_utc", "TIMESTAMP"), ("type", "VARCHAR"), ("sub_type", "VARCHAR"),
     ("sport_group", "VARCHAR"), ("moving_time_s", "INTEGER"),
     ("elapsed_time_s", "INTEGER"), ("distance_m", "DOUBLE"),
@@ -80,7 +80,7 @@ BYCATEGORY_COLUMNS = [
 ]
 
 DECOUPLING_COLUMNS = [
-    ("activity_id", "BIGINT"), ("activity_start", "TIMESTAMP"),
+    ("activity_id", "VARCHAR"), ("activity_start", "TIMESTAMP"),
     ("name", "VARCHAR"), ("decoupling_pct", "DOUBLE"), ("minutes", "DOUBLE"),
 ]
 
@@ -128,6 +128,7 @@ class Api:
         req = urllib.request.Request(url)
         req.add_header("Authorization", "Basic " + self.token)
         req.add_header("Accept", "application/json")
+        req.add_header("User-Agent", "running-analytics-sync/1.0 (personal dashboard)")
         for attempt in range(3):
             try:
                 with urllib.request.urlopen(req, timeout=90) as resp:
@@ -240,7 +241,7 @@ def sync_activities(api: Api, athlete_id: str, since: date, max_pages: int) -> l
 
 
 def sync_weekly(api: Api, athlete_id: str, since: date) -> tuple[list[dict], list[dict]]:
-    rows: list[dict] = []
+    rows: dict[str, dict] = {}
     by_category: list[dict] = []
     year = since.year
     while year <= date.today().year:
@@ -255,23 +256,32 @@ def sync_weekly(api: Api, athlete_id: str, since: date) -> tuple[list[dict], lis
             ws = clean_text(
                 week.get("week_start") or week.get("date") or week.get("weekStart")
             )[:10]
-            if not ws:
+            if not ws or ws in rows:
                 continue
+            time_s = int(fnum(week, "time", "moving_time", default=0))
+            distance_m = fnum(week, "distance") or 0
+            load = fnum(week, "training_load", "training_load", "load")
+            count = int(fnum(week, "count", "activities", default=0))
+            fitness = fnum(week, "fitness")
+            fatigue = fnum(week, "fatigue")
+            if not time_s and not distance_m and not load and not count \
+                    and fitness is None and fatigue is None:
+                continue  # empty placeholder week (e.g. pre-history years)
             zones = week.get("time_in_zones", week.get("timeInZones"))
-            rows.append({
+            rows[ws] = {
                 "week_start": ws,
-                "activities": int(fnum(week, "count", "activities", default=0)),
-                "time_s": int(fnum(week, "time", "moving_time", default=0)),
-                "distance_m": fnum(week, "distance"),
+                "activities": count,
+                "time_s": time_s,
+                "distance_m": distance_m,
                 "elev_gain_m": fnum(week, "elevation_gain", "elev_gain", "eg"),
-                "training_load": fnum(week, "training_load", "load"),
+                "training_load": load,
                 "fitness": fnum(week, "fitness"),
                 "fatigue": fnum(week, "fatigue"),
                 "form": fnum(week, "form"),
                 "ramp_rate": fnum(week, "ramp_rate", "rampRate"),
                 "avg_weight_kg": fnum(week, "weight"),
                 "time_in_zones": json.dumps(zones) if zones else "",
-            })
+            }
             cats = week.get("byCategory", week.get("by_category")) or []
             if isinstance(cats, dict):
                 cats = [
@@ -297,7 +307,7 @@ def sync_weekly(api: Api, athlete_id: str, since: date) -> tuple[list[dict], lis
         print(f"  weekly {year}: total weeks so far {len(rows)}", flush=True)
         year += 1
         time.sleep(0.3)
-    return rows, by_category
+    return list(rows.values()), by_category
 
 
 def compute_decoupling(api: Api, acts: list[dict], since: date, min_seconds: int) -> list[dict]:
@@ -306,8 +316,8 @@ def compute_decoupling(api: Api, acts: list[dict], since: date, min_seconds: int
     candidates = [
         a for a in acts
         if a.get("sport_group") == "run"
-        and (fnum(a, "moving_time", "movingTime", default=0) or 0) >= min_seconds
-        and parse_ts(a.get("start_date")) >= since.isoformat()
+        and (fnum(a, "moving_time_s", "moving_time", "movingTime", default=0) or 0) >= min_seconds
+        and parse_ts(a.get("start_utc") or a.get("start_date")) >= since.isoformat()
     ]
     print(f"  decoupling: computing for {len(candidates)} long runs since {since}", flush=True)
     for idx, act in enumerate(candidates, 1):
@@ -337,15 +347,15 @@ def compute_decoupling(api: Api, acts: list[dict], since: date, min_seconds: int
             halves[0 if t <= mid_t else 1].append((h, v))
         ratios = []
         for half in halves:
-            hr_dt = sum(h * 1.0 for h, _ in half)
             spd_dt = sum(v * 1.0 for _, v in half)
+            hr_dt = sum(h * 1.0 for h, _ in half)
             if spd_dt <= 0 or hr_dt <= 0:
                 ratios = []
                 break
-            ratios.append(hr_dt / spd_dt)
+            ratios.append(spd_dt / hr_dt)  # aerobic efficiency: m per beat
         if len(ratios) == 2 and ratios[0] > 0:
             pct = (ratios[0] - ratios[1]) / ratios[0] * 100
-            start = parse_ts(act.get("start_date") or act.get("start_date_local"))
+            start = parse_ts(act.get("start_utc") or act.get("start_date") or act.get("start_local"))
             results.append({
                 "activity_id": aid,
                 "activity_start": start,
@@ -403,12 +413,18 @@ def main() -> int:
     parser.add_argument("--min-long-run-seconds", type=int, default=4500)
     parser.add_argument("--skip-decoupling", action="store_true")
     parser.add_argument("--skip-db", action="store_true", help="only write data/raw files")
+    parser.add_argument("--build-only", action="store_true", help="rebuild DuckDB from existing data/raw files, skip API sync")
     parser.add_argument("--max-pages", type=int, default=500)
     args = parser.parse_args()
 
     env = load_env()
     api_key = env.get("INTERVALS_ICU_API_KEY")
     athlete_id = env.get("INTERVALS_ICU_ATHLETE_ID", "8175042")
+    if args.build_only:
+        print("Building data/running.duckdb from existing data/raw files ...", flush=True)
+        build_db()
+        print(f"Done. DB: {DB_PATH}", flush=True)
+        return 0
     if not api_key:
         print(
             "ERROR: INTERVALS_ICU_API_KEY not set.\n"
@@ -424,7 +440,11 @@ def main() -> int:
 
     print(f"Syncing activities since {since} ...", flush=True)
     acts = sync_activities(api, athlete_id, since, args.max_pages)
-    rows = [activity_row(a) for a in acts]
+    # Strava-era entries are stubs (intervals.icu does not serve Strava
+    # activities over the API: just id/date/source + a _note) — keep the raw
+    # NDJSON complete but exclude stubs from the analytics table.
+    data_acts = [a for a in acts if not a.get("_note") and (a.get("type") or a.get("distance") or a.get("moving_time"))]
+    rows = [activity_row(a) for a in data_acts]
     (RAW / "activities.ndjson").write_text(
         "\n".join(json.dumps(a, default=str) for a in acts) + ("\n" if acts else "")
     )
