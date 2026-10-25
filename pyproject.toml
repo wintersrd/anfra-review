@@ -23,6 +23,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = [".", "scripts", "streamlit_app"]
 addopts = "-q --cov=scripts --cov=streamlit_app --cov-report=term-missing:skip-covered --cov-fail-under=70"
 filterwarnings = [
     # Streamlit's bare-mode import warnings are noise in tests

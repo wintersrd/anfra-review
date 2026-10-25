@@ -14,6 +14,8 @@ DuckDB file.
 | `docs/anfra-framework-review.md` | anfra framework review: strengths, weaknesses, issues → solutions |
 | `apps/running.html` | One-page dashboard: fitness (CTL/ATL/TSB), volume & consistency, speed trends, surface splits (road/trail/indoor), stride length & pace distribution, HR decoupling, hilliness, pace vs temperature — Great Wave (ukiyo-e) themed |
 | `streamlit_app/` | Streamlit port of the same dashboard (Plotly, day/night toggle, sport cross-filter) — see below |
+| `anfra_client/` | Python SDK over anfra's MCP server: typed logical-query API, error hierarchy, mock transport — **the boundary new data apps should code against** |
+| `docs/anfra-client-guide.md` | Guide: build a new data app on the anfra backend with `anfra_client` (quickstart, error handling, testing patterns) |
 | `.streamlit/config.toml` | Streamlit base theme (Great Wave light palette) |
 
 Schema is sport-agnostic by design (v2 will add cycling + strength views):
@@ -33,6 +35,20 @@ the plain `duckdb` CLI (use `--build-only`).
 ~/.anfra/bin/anfra validate                      # semantic layer check
 ~/.anfra/bin/anfra serve                         # http://127.0.0.1:7878/apps/running
 ```
+
+## Architecture: anfra as the backend, apps as consumers
+
+`anfra serve` owns the DuckDB file, the semantic model (AML), and the query
+engine. Data apps — the native anfra dashboard, the Streamlit app, the next
+app you build — are consumers:
+
+- `anfra_client/` — typed Python SDK over anfra's MCP endpoint: express
+  queries as logical elements (dimensions / measures / typed filters), get
+  rows or DataFrames back, with a closed error hierarchy and a mock transport
+  for hermetic tests. Start here: **docs/anfra-client-guide.md**.
+- `streamlit_app/queries_aql.py` — worked example: the KPI tier re-expressed
+  as AQL through the client, equivalence-tested against the SQL module
+  (`queries.py`, kept as the test oracle during the migration).
 
 ## Streamlit app
 
