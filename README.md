@@ -1,8 +1,9 @@
 # running-analytics
 
-Personal running & training analytics over 10+ years of intervals.icu history,
-built as an [anfra](https://github.com/holistics/anfra) data app on a local
-DuckDB file.
+Personal running & training analytics over 14 years of intervals.icu history,
+built on a local DuckDB file with an [anfra](https://github.com/holistics/anfra)
+semantic layer. Two frontends consume the same truth definitions: the native
+anfra dashboard and a Streamlit app wired through anfra's MCP server.
 
 ## What's inside
 
@@ -13,9 +14,11 @@ DuckDB file.
 | `datasets/running_analytics.dataset.aml` | Dataset with derived metrics (pace, weighted HR, run-only filters, aerobic efficiency) |
 | `docs/anfra-framework-review.md` | anfra framework review: strengths, weaknesses, issues → solutions |
 | `apps/running.html` | One-page dashboard: fitness (CTL/ATL/TSB), volume & consistency, speed trends, surface splits (road/trail/indoor), stride length & pace distribution, HR decoupling, hilliness, pace vs temperature — Great Wave (ukiyo-e) themed |
-| `streamlit_app/` | Streamlit port of the same dashboard (Plotly, day/night toggle, sport cross-filter) — see below |
+| `streamlit_app/` | Streamlit port of the same dashboard (Plotly, day/night toggle, sport cross-filter); live data layer is `queries_aql.py` (AQL via `anfra_client`), with `queries.py` kept as the SQL test oracle — see below |
 | `anfra_client/` | Python SDK over anfra's MCP server: typed logical-query API, error hierarchy, mock transport — **the boundary new data apps should code against** |
+| `tests/` | Four-layer suite (unit / integration / anfra / charts) + client SDK tests, capability matrix, frame edge cases, record/replay smoke, live AppTest |
 | `docs/anfra-client-guide.md` | Guide: build a new data app on the anfra backend with `anfra_client` (quickstart, error handling, testing patterns) |
+| `AGENTS.md` | Development guide for AI agents (start here) |
 | `.streamlit/config.toml` | Streamlit base theme (Great Wave light palette) |
 
 Schema is sport-agnostic by design (v2 will add cycling + strength views):
@@ -36,7 +39,11 @@ the plain `duckdb` CLI (use `--build-only`).
 ~/.anfra/bin/anfra serve                         # http://127.0.0.1:7878/apps/running
 ```
 
-## Architecture: anfra as the backend, apps as consumers — the Streamlit app's live data layer is `streamlit_app/queries_aql.py` (AQL over the anfra MCP); `queries.py` remains as the SQL test oracle
+## Architecture: anfra as the backend, apps as consumers
+
+The Streamlit app's live data layer is `streamlit_app/queries_aql.py` — every
+query is expressed as AQL over the anfra MCP. `queries.py` (raw SQL) is kept
+as the SQL test oracle; an equivalence suite asserts both layers agree.
 
 `anfra serve` owns the DuckDB file, the semantic model (AML), and the query
 engine. Data apps — the native anfra dashboard, the Streamlit app, the next
@@ -46,13 +53,13 @@ app you build — are consumers:
   queries as logical elements (dimensions / measures / typed filters), get
   rows or DataFrames back, with a closed error hierarchy and a mock transport
   for hermetic tests. Start here: **docs/anfra-client-guide.md**.
-- `streamlit_app/queries_aql.py` — worked example: the KPI tier re-expressed
-  as AQL through the client, equivalence-tested against the SQL module
-  (`queries.py`, kept as the test oracle during the migration).
+- `streamlit_app/queries_aql.py` — the live data layer of the Streamlit app:
+  all 22 query functions as AQL through the client, equivalence-tested
+  against the SQL oracle (`queries.py`).
 
 ## Streamlit app
 
-Same data, same 21-query surface, Plotly charts, Great Wave styling:
+Same data, same charts, Great Wave styling — now AQL-backed via `anfra_client`:
 
 ```bash
 uv sync                                          # creates .venv (streamlit, plotly, duckdb)
@@ -67,20 +74,26 @@ the DuckDB write lock. Night mode and the sport cross-filter (click a slice in
 ## Testing
 
 ```bash
-uv run pytest                 # full suite (≈40s): unit + integration + anfra + charts
+uv run pytest                 # full suite: unit + integration + anfra + charts
 uv run pytest -m unit         # fast pure-function layer only
 uv run pytest -m integration  # fixture-DuckDB layer (no network, no API key)
-uv run pytest -m "anfra or charts"  # needs ~/.anfra/bin/anfra and NO running `anfra serve`
+```
+
+Server-dependent tests split by access path — run the half you need:
+
+```bash
+uv run pytest -m anfra --ignore=tests/anfra    # MCP live tests: needs `anfra serve` RUNNING
+uv run pytest tests/anfra tests/charts         # CLI + chart harness: needs `anfra serve` STOPPED (DuckDB lock)
 ```
 
 Four layers, each guarding a class of bug we actually hit:
 
 | Layer | Guards against |
 | --- | --- |
-| `unit` | sync-script logic (sport mapping, decoupling math + sign convention, pagination, week dedupe), theme palette invariants, SQL fragment builders |
-| `integration` | DB build + derived columns (run_surface, stride guard), data-quality invariants (unique ids, ≤53 weeks/year, referential integrity), all 21 streamlit queries, full app.py render smoke test |
-| `anfra` | `anfra validate`, plus every AQL query embedded in `apps/running.html` executed against the live DB |
-| `charts` | ECharts SSR harness (node): renders all 16 anfra charts headlessly and fails on any `setOption` throw — this caught the echarts visualMap crash that blanked the dashboard |
+| `unit` | sync-script logic (sport mapping, decoupling math + sign convention, pagination, week dedupe), theme palette invariants, SQL fragment builders, `anfra_client` behavior offline (envelope parsing, retries, session handling, typed errors, the Pythonic `query()` surface) |
+| `integration` | DB build + derived columns (run_surface, stride guard), data-quality invariants (unique ids, ≤53 weeks/year, referential integrity), all 22 streamlit queries against the fixture DB, AQL↔SQL equivalence (24 tests, pinned tolerances + documented divergences), offline record/replay app smoke, full app.py render smoke test |
+| `anfra` — MCP live (`tests/anfra_client/`, equivalence, AppTest) | `anfra serve` **running** | client SDK against the real server, the engine capability matrix (operator vocabulary, HAVING rule, paging, joins, timezone), AQL↔SQL equivalence, live Streamlit AppTest end-to-end |
+| `anfra` — CLI + `charts` (`tests/anfra/`) | `anfra serve` **stopped** (DuckDB lock) | `anfra validate`, every AQL query embedded in `apps/running.html` executed via CLI, ECharts SSR harness rendering all 16 charts headlessly (caught the echarts visualMap crash that blanked the dashboard) |
 
 The integration fixture builds a DuckDB from the *committed* `data/raw` CSVs,
 so tests are deterministic and need no network. Data fingerprints (row counts
