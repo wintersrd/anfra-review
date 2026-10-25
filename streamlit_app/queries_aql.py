@@ -18,11 +18,19 @@ tests/integration/test_queries_aql_equiv.py.
 from __future__ import annotations
 
 import datetime as dt
+import sys
+from pathlib import Path
 
-import pandas as pd
-import streamlit as st
+# Works no matter where `streamlit run` was launched from: Streamlit only puts
+# the script's own folder on sys.path, but anfra_client/ lives at the repo root.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
-from anfra_client import AnfraClient, Filter, between, is_in
+import pandas as pd  # noqa: E402  (must follow sys.path bootstrap above)
+import streamlit as st  # noqa: E402
+
+from anfra_client import AnfraClient, Filter, between, is_in  # noqa: E402
 
 DATASET = "running_analytics"
 DATA_SOURCE = "running"
