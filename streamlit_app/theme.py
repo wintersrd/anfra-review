@@ -85,8 +85,12 @@ def apply_layout(fig: go.Figure, theme: dict[str, Any], title: str, height: int 
         plot_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=10, r=14, t=42, b=6),
         legend=dict(
-            orientation="h", yanchor="bottom", y=1.0, x=0,
-            bgcolor="rgba(0,0,0,0)", font=dict(size=11),
+            orientation="h",
+            yanchor="bottom",
+            y=1.0,
+            x=0,
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(size=11),
         ),
         hoverlabel=dict(
             bgcolor=theme["card"],
@@ -96,12 +100,16 @@ def apply_layout(fig: go.Figure, theme: dict[str, Any], title: str, height: int 
         coloraxis=dict(colorscale=_heatmap_scale(theme)),
     )
     fig.update_xaxes(
-        gridcolor=theme["grid"], zerolinecolor=theme["grid"],
-        linecolor=theme["border"], tickfont=dict(size=11),
+        gridcolor=theme["grid"],
+        zerolinecolor=theme["grid"],
+        linecolor=theme["border"],
+        tickfont=dict(size=11),
     )
     fig.update_yaxes(
-        gridcolor=theme["grid"], zerolinecolor=theme["grid"],
-        linecolor=theme["border"], tickfont=dict(size=11),
+        gridcolor=theme["grid"],
+        zerolinecolor=theme["grid"],
+        linecolor=theme["border"],
+        tickfont=dict(size=11),
     )
     return fig
 
@@ -120,36 +128,36 @@ def page_css(theme: dict[str, Any]) -> str:
     return f"""
     <style>
         .stApp {{
-            background: linear-gradient(180deg, {t['page']} 0%, {t['page_alt']} 100%);
-            color: {t['ink']};
+            background: linear-gradient(180deg, {t["page"]} 0%, {t["page_alt"]} 100%);
+            color: {t["ink"]};
         }}
         [data-testid="stHeader"] {{ background: transparent; }}
         h1, h2, h3, h4, .stMarkdown p, label, [data-testid="stMetricLabel"] p {{
-            color: {t['ink']};
+            color: {t["ink"]};
         }}
         [data-testid="stMetric"], .stPlotlyChart, [data-testid="stDataFrame"],
         [data-testid="stRadio"], [data-testid="stMultiSelect"], [data-testid="stDateInput"] {{
-            background: {t['card']};
-            border: 1px solid {t['border']};
+            background: {t["card"]};
+            border: 1px solid {t["border"]};
             border-radius: 12px;
         }}
         [data-testid="stMetric"], .stPlotlyChart {{ padding: 10px 14px; }}
-        [data-testid="stMetricValue"] {{ color: {t['ink']}; }}
+        [data-testid="stMetricValue"] {{ color: {t["ink"]}; }}
         [data-testid="stMetricDelta"] svg {{ vertical-align: middle; }}
         [data-testid="stSidebar"] {{
-            background: {t['card']};
-            border-right: 1px solid {t['border']};
+            background: {t["card"]};
+            border-right: 1px solid {t["border"]};
         }}
-        [data-testid="stSidebar"] * {{ color: {t['ink']}; }}
-        a {{ color: {t['pos']}; }}
-        .wave-caption {{ color: {t['muted']}; font-size: 0.86rem; }}
+        [data-testid="stSidebar"] * {{ color: {t["ink"]}; }}
+        a {{ color: {t["pos"]}; }}
+        .wave-caption {{ color: {t["muted"]}; font-size: 0.86rem; }}
         div[data-testid="stExpander"] {{
-            border: 1px solid {t['border']}; border-radius: 12px;
-            background: {t['card']};
+            border: 1px solid {t["border"]}; border-radius: 12px;
+            background: {t["card"]};
         }}
         div[data-testid="stButton"] > button {{
-            background: {t['card']}; color: {t['ink']};
-            border: 1px solid {t['border']}; border-radius: 999px;
+            background: {t["card"]}; color: {t["ink"]};
+            border: 1px solid {t["border"]}; border-radius: 999px;
         }}
     </style>
     """

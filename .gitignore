@@ -7,3 +7,5 @@ __pycache__/
 data/running_reader.duckdb
 .venv/
 uv.lock
+tests/anfra/.cache/
+.coverage

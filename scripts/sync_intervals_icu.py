@@ -15,6 +15,7 @@ Credentials: reads .env at the repo root (never printed):
   INTERVALS_ICU_API_KEY=...
   INTERVALS_ICU_ATHLETE_ID=8175042
 """
+
 from __future__ import annotations
 
 import argparse
@@ -41,48 +42,89 @@ BASE_URL = os.getenv("INTERVALS_API_BASE_URL", "https://intervals.icu/api/v1")
 # sport grouping (v2-ready: run view today, cycling + strength later)
 # ---------------------------------------------------------------------------
 SPORT_GROUP = {
-    "Run": "run", "TrailRun": "run", "VirtualRun": "run", "Treadmill": "run",
-    "Ride": "ride", "VirtualRide": "ride", "MountainBikeRide": "ride",
-    "GravelRide": "ride", "EBikeRide": "ride",
-    "WeightTraining": "strength", "Workout": "strength",
-    "Walk": "walk", "Hike": "walk",
+    "Run": "run",
+    "TrailRun": "run",
+    "VirtualRun": "run",
+    "Treadmill": "run",
+    "Ride": "ride",
+    "VirtualRide": "ride",
+    "MountainBikeRide": "ride",
+    "GravelRide": "ride",
+    "EBikeRide": "ride",
+    "WeightTraining": "strength",
+    "Workout": "strength",
+    "Walk": "walk",
+    "Hike": "walk",
     "Yoga": "yoga",
-    "Rowing": "row", "VirtualRow": "row",
+    "Rowing": "row",
+    "VirtualRow": "row",
 }
 
 ACTIVITY_COLUMNS = [
-    ("id", "VARCHAR"), ("name", "VARCHAR"), ("start_local", "TIMESTAMP"),
-    ("start_utc", "TIMESTAMP"), ("type", "VARCHAR"), ("sub_type", "VARCHAR"),
-    ("sport_group", "VARCHAR"), ("moving_time_s", "INTEGER"),
-    ("elapsed_time_s", "INTEGER"), ("distance_m", "DOUBLE"),
-    ("elev_gain_m", "DOUBLE"), ("elev_loss_m", "DOUBLE"),
-    ("avg_speed_ms", "DOUBLE"), ("max_speed_ms", "DOUBLE"),
-    ("avg_hr", "DOUBLE"), ("max_hr", "DOUBLE"), ("avg_cadence", "DOUBLE"),
-    ("calories", "INTEGER"), ("avg_temp_c", "DOUBLE"),
-    ("training_load", "DOUBLE"), ("atl", "DOUBLE"), ("ctl", "DOUBLE"),
-    ("is_race", "BOOLEAN"), ("is_commute", "BOOLEAN"), ("trainer", "BOOLEAN"),
-    ("device_name", "VARCHAR"), ("threshold_pace_ms", "DOUBLE"),
-    ("decoupling", "DOUBLE"), ("gap_s", "INTEGER"),
-    ("weighted_avg_watts", "DOUBLE"), ("icu_joules", "DOUBLE"),
+    ("id", "VARCHAR"),
+    ("name", "VARCHAR"),
+    ("start_local", "TIMESTAMP"),
+    ("start_utc", "TIMESTAMP"),
+    ("type", "VARCHAR"),
+    ("sub_type", "VARCHAR"),
+    ("sport_group", "VARCHAR"),
+    ("moving_time_s", "INTEGER"),
+    ("elapsed_time_s", "INTEGER"),
+    ("distance_m", "DOUBLE"),
+    ("elev_gain_m", "DOUBLE"),
+    ("elev_loss_m", "DOUBLE"),
+    ("avg_speed_ms", "DOUBLE"),
+    ("max_speed_ms", "DOUBLE"),
+    ("avg_hr", "DOUBLE"),
+    ("max_hr", "DOUBLE"),
+    ("avg_cadence", "DOUBLE"),
+    ("calories", "INTEGER"),
+    ("avg_temp_c", "DOUBLE"),
+    ("training_load", "DOUBLE"),
+    ("atl", "DOUBLE"),
+    ("ctl", "DOUBLE"),
+    ("is_race", "BOOLEAN"),
+    ("is_commute", "BOOLEAN"),
+    ("trainer", "BOOLEAN"),
+    ("device_name", "VARCHAR"),
+    ("threshold_pace_ms", "DOUBLE"),
+    ("decoupling", "DOUBLE"),
+    ("gap_s", "INTEGER"),
+    ("weighted_avg_watts", "DOUBLE"),
+    ("icu_joules", "DOUBLE"),
     ("external_id", "VARCHAR"),
 ]
 
 WEEKLY_COLUMNS = [
-    ("week_start", "DATE"), ("activities", "INTEGER"), ("time_s", "INTEGER"),
-    ("distance_m", "DOUBLE"), ("elev_gain_m", "DOUBLE"),
-    ("training_load", "DOUBLE"), ("fitness", "DOUBLE"), ("fatigue", "DOUBLE"),
-    ("form", "DOUBLE"), ("ramp_rate", "DOUBLE"), ("avg_weight_kg", "DOUBLE"),
+    ("week_start", "DATE"),
+    ("activities", "INTEGER"),
+    ("time_s", "INTEGER"),
+    ("distance_m", "DOUBLE"),
+    ("elev_gain_m", "DOUBLE"),
+    ("training_load", "DOUBLE"),
+    ("fitness", "DOUBLE"),
+    ("fatigue", "DOUBLE"),
+    ("form", "DOUBLE"),
+    ("ramp_rate", "DOUBLE"),
+    ("avg_weight_kg", "DOUBLE"),
     ("time_in_zones", "VARCHAR"),
 ]
 
 BYCATEGORY_COLUMNS = [
-    ("week_start", "DATE"), ("category", "VARCHAR"), ("activities", "INTEGER"),
-    ("time_s", "INTEGER"), ("distance_m", "DOUBLE"), ("training_load", "DOUBLE"),
+    ("week_start", "DATE"),
+    ("category", "VARCHAR"),
+    ("activities", "INTEGER"),
+    ("time_s", "INTEGER"),
+    ("distance_m", "DOUBLE"),
+    ("training_load", "DOUBLE"),
 ]
 
 DECOUPLING_COLUMNS = [
-    ("activity_id", "VARCHAR"), ("activity_start", "TIMESTAMP"),
-    ("name", "VARCHAR"), ("decoupling_pct", "DOUBLE"), ("minutes", "DOUBLE"),
+    ("activity_id", "VARCHAR"),
+    ("activity_start", "TIMESTAMP"),
+    ("name", "VARCHAR"),
+    ("decoupling_pct", "DOUBLE"),
+    ("minutes", "DOUBLE"),
 ]
 
 
@@ -254,9 +296,9 @@ def sync_weekly(api: Api, athlete_id: str, since: date) -> tuple[list[dict], lis
         )
         weeks = data if isinstance(data, list) else data.get("weeks", [])
         for week in weeks:
-            ws = clean_text(
-                week.get("week_start") or week.get("date") or week.get("weekStart")
-            )[:10]
+            ws = clean_text(week.get("week_start") or week.get("date") or week.get("weekStart"))[
+                :10
+            ]
             if not ws or ws in rows:
                 continue
             time_s = int(fnum(week, "time", "moving_time", default=0))
@@ -265,8 +307,14 @@ def sync_weekly(api: Api, athlete_id: str, since: date) -> tuple[list[dict], lis
             count = int(fnum(week, "count", "activities", default=0))
             fitness = fnum(week, "fitness")
             fatigue = fnum(week, "fatigue")
-            if not time_s and not distance_m and not load and not count \
-                    and fitness is None and fatigue is None:
+            if (
+                not time_s
+                and not distance_m
+                and not load
+                and not count
+                and fitness is None
+                and fatigue is None
+            ):
                 continue  # empty placeholder week (e.g. pre-history years)
             zones = week.get("time_in_zones", week.get("timeInZones"))
             rows[ws] = {
@@ -297,25 +345,72 @@ def sync_weekly(api: Api, athlete_id: str, since: date) -> tuple[list[dict], lis
                 )
                 if not label:
                     continue
-                by_category.append({
-                    "week_start": ws,
-                    "category": label,
-                    "activities": int(fnum(cat, "count", "activities", default=0)),
-                    "time_s": int(fnum(cat, "time", "moving_time", default=0)),
-                    "distance_m": fnum(cat, "distance"),
-                    "training_load": fnum(cat, "training_load", "load"),
-                })
+                by_category.append(
+                    {
+                        "week_start": ws,
+                        "category": label,
+                        "activities": int(fnum(cat, "count", "activities", default=0)),
+                        "time_s": int(fnum(cat, "time", "moving_time", default=0)),
+                        "distance_m": fnum(cat, "distance"),
+                        "training_load": fnum(cat, "training_load", "load"),
+                    }
+                )
         print(f"  weekly {year}: total weeks so far {len(rows)}", flush=True)
         year += 1
         time.sleep(0.3)
     return list(rows.values()), by_category
 
 
+def is_stub(act: dict) -> bool:
+    """True for Strava-era placeholder records the API refuses to serve.
+
+    intervals.icu returns just {id, start_date_local, source:STRAVA, _note}
+    for those; analytics tables must exclude them.
+    """
+    return bool(act.get("_note")) or not (
+        act.get("type") or act.get("distance") or act.get("moving_time")
+    )
+
+
+def decoupling_pct(times: list, hrs: list, speeds: list) -> tuple[float, float] | None:
+    """(decoupling %, minutes covered) from aligned stream samples.
+
+    Positive = second half has HIGHER heart rate cost per metre (drift /
+    fatigue). Returns None when the streams are unusable (length mismatch,
+    too few moving samples, empty half) — see compute_decoupling.
+    """
+    if not (times and hrs and speeds and len(times) == len(hrs) == len(speeds)):
+        return None
+    samples = [
+        (t, h, v)
+        for t, h, v in zip(times, hrs, speeds, strict=True)
+        if t is not None and h and v is not None and v >= 0.5
+    ]
+    if len(samples) < 20:
+        return None
+    mid_t = (samples[0][0] + samples[-1][0]) / 2
+    halves: tuple[list, list] = ([], [])
+    for t, h, v in samples:
+        halves[0 if t <= mid_t else 1].append((h, v))
+    ratios = []
+    for half in halves:
+        spd_dt = sum(v * 1.0 for _, v in half)
+        hr_dt = sum(h * 1.0 for h, _ in half)
+        if spd_dt <= 0 or hr_dt <= 0:
+            return None
+        ratios.append(spd_dt / hr_dt)  # aerobic efficiency: m per beat
+    if len(ratios) != 2 or ratios[0] <= 0:
+        return None
+    pct = (ratios[0] - ratios[1]) / ratios[0] * 100
+    return round(pct, 2), round(samples[-1][0] / 60.0, 1)
+
+
 def compute_decoupling(api: Api, acts: list[dict], since: date, min_seconds: int) -> list[dict]:
     """HR decoupling from streams for long runs: (r1-r2)/r1*100, halves by time."""
     results: list[dict] = []
     candidates = [
-        a for a in acts
+        a
+        for a in acts
         if a.get("sport_group") == "run"
         and (fnum(a, "moving_time_s", "moving_time", "movingTime", default=0) or 0) >= min_seconds
         and parse_ts(a.get("start_utc") or a.get("start_date")) >= since.isoformat()
@@ -324,46 +419,32 @@ def compute_decoupling(api: Api, acts: list[dict], since: date, min_seconds: int
     for idx, act in enumerate(candidates, 1):
         aid = act.get("id")
         try:
-            streams = api.get(f"/activity/{aid}/streams", {"types": "time,heartrate,velocity_smooth"})
+            streams = api.get(
+                f"/activity/{aid}/streams", {"types": "time,heartrate,velocity_smooth"}
+            )
         except urllib.error.HTTPError as err:
             print(f"    [{idx}/{len(candidates)}] id={aid} HTTP {err.code}; skipped", flush=True)
             continue
         if isinstance(streams, list):
             streams = {s.get("type"): s.get("data", s.get("series")) for s in streams}
-        times = streams.get("time") or []
-        hrs = streams.get("heartrate") or streams.get("hr") or []
-        speeds = streams.get("velocity_smooth") or streams.get("velocity") or []
-        if not (times and hrs and speeds and len(times) == len(hrs) == len(speeds)):
+        computed = decoupling_pct(
+            streams.get("time") or [],
+            streams.get("heartrate") or streams.get("hr") or [],
+            streams.get("velocity_smooth") or streams.get("velocity") or [],
+        )
+        if computed is None:
             continue
-        samples = [
-            (t, h, v)
-            for t, h, v in zip(times, hrs, speeds)
-            if t is not None and h and v is not None and v >= 0.5
-        ]
-        if len(samples) < 20:
-            continue
-        mid_t = (samples[0][0] + samples[-1][0]) / 2
-        halves = ([], [])
-        for t, h, v in samples:
-            halves[0 if t <= mid_t else 1].append((h, v))
-        ratios = []
-        for half in halves:
-            spd_dt = sum(v * 1.0 for _, v in half)
-            hr_dt = sum(h * 1.0 for h, _ in half)
-            if spd_dt <= 0 or hr_dt <= 0:
-                ratios = []
-                break
-            ratios.append(spd_dt / hr_dt)  # aerobic efficiency: m per beat
-        if len(ratios) == 2 and ratios[0] > 0:
-            pct = (ratios[0] - ratios[1]) / ratios[0] * 100
-            start = parse_ts(act.get("start_utc") or act.get("start_date") or act.get("start_local"))
-            results.append({
+        pct, minutes = computed
+        start = parse_ts(act.get("start_utc") or act.get("start_date") or act.get("start_local"))
+        results.append(
+            {
                 "activity_id": aid,
                 "activity_start": start,
                 "name": clean_text(act.get("name")),
-                "decoupling_pct": round(pct, 2),
-                "minutes": round(samples[-1][0] / 60.0, 1),
-            })
+                "decoupling_pct": pct,
+                "minutes": minutes,
+            }
+        )
         if idx % 25 == 0:
             print(f"    ... {idx}/{len(candidates)}", flush=True)
         time.sleep(0.4)
@@ -375,13 +456,22 @@ def write_csv(path: Path, columns: list[tuple[str, str]], rows: list[dict]) -> N
         writer = csv.DictWriter(fh, fieldnames=[c for c, _ in columns], extrasaction="ignore")
         writer.writeheader()
         for row in rows:
-            writer.writerow(
-                {c: "" if row.get(c) is None else row.get(c) for c, _ in columns}
-            )
+            writer.writerow({c: "" if row.get(c) is None else row.get(c) for c, _ in columns})
 
 
-def build_db() -> None:
-    RAW.mkdir(parents=True, exist_ok=True)
+def build_db(
+    raw_dir: Path | None = None,
+    db_path: Path | None = None,
+    write_reader: bool = True,
+) -> Path:
+    """Build the analytics DuckDB from data/raw CSVs; returns the db path.
+
+    ``raw_dir``/``db_path`` are parametrized so tests can build a fixture DB
+    in a temp dir without touching the live one.
+    """
+    raw_dir = raw_dir or RAW
+    db_path = db_path or DB_PATH
+    raw_dir.mkdir(parents=True, exist_ok=True)
     tables = [
         ("activities", ACTIVITY_COLUMNS, "activities.csv"),
         ("weekly_summary", WEEKLY_COLUMNS, "weekly_summary.csv"),
@@ -393,7 +483,7 @@ def build_db() -> None:
         cols = ", ".join(f"'{name}': '{sql}'" for name, sql in columns)
         statements.append(
             f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM read_csv("
-            f"'{RAW / filename}', header=true, nullstr='', columns={{{cols}}});"
+            f"'{raw_dir / filename}', header=true, nullstr='', columns={{{cols}}});"
         )
     statements.append("CHECKPOINT;")
     # Derived columns: run surface split + stride length (cadence is rpm,
@@ -416,8 +506,8 @@ def build_db() -> None:
     # new default storage format. Build in a temp file, then re-export into the
     # final DB using the widely-readable v0.10.0 storage format (readable by
     # DuckDB >= 0.10, including anfra's embedded driver and the 2.x CLI).
-    build_path = DB_PATH.with_suffix(".build.duckdb")
-    export_dir = DB_PATH.parent / ".build_export"
+    build_path = db_path.with_suffix(".build.duckdb")
+    export_dir = db_path.parent / ".build_export"
     if build_path.exists():
         build_path.unlink()
     if export_dir.exists():
@@ -430,34 +520,55 @@ def build_db() -> None:
         capture_output=True,
     )
     subprocess.run(
-        ["duckdb", str(build_path), "-no-agent", "-c",
-         f"EXPORT DATABASE '{export_dir}' (FORMAT parquet);"],
-        check=True, capture_output=True,
+        [
+            "duckdb",
+            str(build_path),
+            "-no-agent",
+            "-c",
+            f"EXPORT DATABASE '{export_dir}' (FORMAT parquet);",
+        ],
+        check=True,
+        capture_output=True,
     )
-    if DB_PATH.exists():
-        DB_PATH.unlink()
+    if db_path.exists():
+        db_path.unlink()
     subprocess.run(
-        ["duckdb", "-no-agent", "-c",
-         f"ATTACH '{DB_PATH}' AS final (STORAGE_VERSION 'v0.10.0');"
-         f"USE final; IMPORT DATABASE '{export_dir}';"],
-        check=True, capture_output=True,
+        [
+            "duckdb",
+            "-no-agent",
+            "-c",
+            f"ATTACH '{db_path}' AS final (STORAGE_VERSION 'v0.10.0');"
+            f"USE final; IMPORT DATABASE '{export_dir}';",
+        ],
+        check=True,
+        capture_output=True,
     )
     shutil.rmtree(export_dir)
     build_path.unlink()
     # Reader snapshot for consumers that must not fight the anfra server for the
     # write lock (e.g. the Streamlit app opens this read-only).
-    reader_path = DB_PATH.with_name("running_reader.duckdb")
-    shutil.copy2(DB_PATH, reader_path)
+    if write_reader:
+        reader_path = db_path.with_name("running_reader.duckdb")
+        shutil.copy2(db_path, reader_path)
+    return db_path
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--since", default="2006-01-01", help="backfill floor (YYYY-MM-DD)")
-    parser.add_argument("--decoupling-since", default=None, help="compute stream decoupling for long runs since this date")
+    parser.add_argument(
+        "--decoupling-since",
+        default=None,
+        help="compute stream decoupling for long runs since this date",
+    )
     parser.add_argument("--min-long-run-seconds", type=int, default=4500)
     parser.add_argument("--skip-decoupling", action="store_true")
     parser.add_argument("--skip-db", action="store_true", help="only write data/raw files")
-    parser.add_argument("--build-only", action="store_true", help="rebuild DuckDB from existing data/raw files, skip API sync")
+    parser.add_argument(
+        "--build-only",
+        action="store_true",
+        help="rebuild DuckDB from existing data/raw files, skip API sync",
+    )
     parser.add_argument("--max-pages", type=int, default=500)
     args = parser.parse_args()
 
@@ -484,16 +595,17 @@ def main() -> int:
 
     print(f"Syncing activities since {since} ...", flush=True)
     acts = sync_activities(api, athlete_id, since, args.max_pages)
-    # Strava-era entries are stubs (intervals.icu does not serve Strava
-    # activities over the API: just id/date/source + a _note) — keep the raw
-    # NDJSON complete but exclude stubs from the analytics table.
-    data_acts = [a for a in acts if not a.get("_note") and (a.get("type") or a.get("distance") or a.get("moving_time"))]
+    # Strava-era entries are stubs (see is_stub) — keep the raw NDJSON
+    # complete but exclude stubs from the analytics table.
+    data_acts = [a for a in acts if not is_stub(a)]
     rows = [activity_row(a) for a in data_acts]
     (RAW / "activities.ndjson").write_text(
         "\n".join(json.dumps(a, default=str) for a in acts) + ("\n" if acts else "")
     )
     runs = sum(1 for r in rows if r["sport_group"] == "run")
-    print(f"Activities: {len(rows)} unique ({runs} runs) — {api.calls} API calls so far", flush=True)
+    print(
+        f"Activities: {len(rows)} unique ({runs} runs) — {api.calls} API calls so far", flush=True
+    )
 
     print("Syncing weekly summaries ...", flush=True)
     weekly, weekly_cats = sync_weekly(api, athlete_id, since)

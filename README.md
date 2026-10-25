@@ -48,6 +48,32 @@ automatically after every DB build, so it never fights the anfra server for
 the DuckDB write lock. Night mode and the sport cross-filter (click a slice in
 "Hours by sport") live in-app; date/sport/surface filters are in the sidebar.
 
+## Testing
+
+```bash
+uv run pytest                 # full suite (≈40s): unit + integration + anfra + charts
+uv run pytest -m unit         # fast pure-function layer only
+uv run pytest -m integration  # fixture-DuckDB layer (no network, no API key)
+uv run pytest -m "anfra or charts"  # needs ~/.anfra/bin/anfra and NO running `anfra serve`
+```
+
+Four layers, each guarding a class of bug we actually hit:
+
+| Layer | Guards against |
+| --- | --- |
+| `unit` | sync-script logic (sport mapping, decoupling math + sign convention, pagination, week dedupe), theme palette invariants, SQL fragment builders |
+| `integration` | DB build + derived columns (run_surface, stride guard), data-quality invariants (unique ids, ≤53 weeks/year, referential integrity), all 21 streamlit queries, full app.py render smoke test |
+| `anfra` | `anfra validate`, plus every AQL query embedded in `apps/running.html` executed against the live DB |
+| `charts` | ECharts SSR harness (node): renders all 16 anfra charts headlessly and fails on any `setOption` throw — this caught the echarts visualMap crash that blanked the dashboard |
+
+The integration fixture builds a DuckDB from the *committed* `data/raw` CSVs,
+so tests are deterministic and need no network. Data fingerprints (row counts
+per table) are pinned in `tests/integration/test_build_db.py` — update them in
+the same commit as any deliberate re-sync. The anfra/chart layers auto-skip
+while `anfra serve` holds the DuckDB file lock (stop the server to run them).
+Coverage floor is 70% (`--cov-fail-under` in `pyproject.toml`); use
+`--no-cov` for partial marker runs. Pre-commit runs ruff + the unit layer.
+
 ## Notes
 
 - Weekly fitness/fatigue/form (CTL/ATL/TSB) and ramp rate come from

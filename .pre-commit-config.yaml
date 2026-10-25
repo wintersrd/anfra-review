@@ -1,0 +1,19 @@
+# Fast feedback on commit: lint/format + unit tests. Full suite (integration,
+# anfra, chart harness) runs via `uv run pytest` — the anfra layers need the
+# DuckDB lock, i.e. `anfra serve` must be stopped.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.2
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: pytest-unit
+        name: pytest (unit layer)
+        entry: uv run pytest -m unit -q --no-cov
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]

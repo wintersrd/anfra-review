@@ -11,3 +11,54 @@ dependencies = [
 
 [tool.uv]
 package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "pandas-stubs>=2.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --cov=scripts --cov=streamlit_app --cov-report=term-missing:skip-covered --cov-fail-under=70"
+filterwarnings = [
+    # Streamlit's bare-mode import warnings are noise in tests
+    "ignore:No runtime found",
+    "ignore:missing ScriptRunContext",
+]
+markers = [
+    "unit: fast pure-function tests (no DB, no network)",
+    "integration: tests against a fixture DuckDB built from committed data/raw CSVs",
+    "anfra: tests that shell out to the anfra CLI (validate / query)",
+    "charts: ECharts SSR harness — renders every app chart headlessly (needs node)",
+]
+
+[tool.coverage.run]
+omit = ["scripts/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "^if TYPE_CHECKING:",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".venv", "data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["streamlit.*", "plotly.*", "duckdb.*"]
+ignore_missing_imports = true

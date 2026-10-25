@@ -13,14 +13,13 @@ import datetime as dt
 
 import pandas as pd
 import plotly.graph_objects as go
-import streamlit as st
-
 import queries as q
+import streamlit as st
 from theme import (
     DARK,
     LIGHT,
-    SURFACE_ORDER,
     SPORT_LABELS,
+    SURFACE_ORDER,
     apply_layout,
     page_css,
     palette,
@@ -211,7 +210,11 @@ def line(
     x: list, y: list, name: str, color: str, dash: str | None = None, yaxis: str = "y"
 ) -> go.Scatter:
     return go.Scatter(
-        x=x, y=y, name=name, mode="lines", line=dict(color=color, dash=dash, width=2),
+        x=x,
+        y=y,
+        name=name,
+        mode="lines",
+        line=dict(color=color, dash=dash, width=2),
         yaxis=yaxis,
     )
 
@@ -248,7 +251,10 @@ def flush_row(count: int) -> None:
 # Fitness & load
 # --------------------------------------------------------------------------
 
-section("Fitness & load", "CTL/ATL/TSB and weekly load from intervals.icu weekly summaries (2012 → today).")
+section(
+    "Fitness & load",
+    "CTL/ATL/TSB and weekly load from intervals.icu weekly summaries (2012 → today).",
+)
 
 ft = _run_query(q.fitness_trend, date_from, date_to)
 if len(ft):
@@ -257,17 +263,30 @@ if len(ft):
     fig.add_trace(line(ft["week_start"], ft["atl"], "ATL (fatigue)", CAT[3]))
     tsb = ft["tsb"]
     fig.add_trace(
-        line(ft["week_start"], [v if v >= 0 else None for v in tsb],
-             "TSB (fresh)", POS, dash="dot", yaxis="y2")
+        line(
+            ft["week_start"],
+            [v if v >= 0 else None for v in tsb],
+            "TSB (fresh)",
+            POS,
+            dash="dot",
+            yaxis="y2",
+        )
     )
     fig.add_trace(
-        line(ft["week_start"], [v if v < 0 else None for v in tsb],
-             "TSB (fatigue)", NEG, dash="dot", yaxis="y2")
+        line(
+            ft["week_start"],
+            [v if v < 0 else None for v in tsb],
+            "TSB (fatigue)",
+            NEG,
+            dash="dot",
+            yaxis="y2",
+        )
     )
     fig.update_layout(
         yaxis=dict(title="CTL / ATL"),
-        yaxis2=dict(title="TSB", overlaying="y", side="right", zeroline=True,
-                    zerolinecolor=theme["grid"]),
+        yaxis2=dict(
+            title="TSB", overlaying="y", side="right", zeroline=True, zerolinecolor=theme["grid"]
+        ),
         hovermode="x unified",
     )
     queue(apply_layout(fig, theme, "Fitness trend — CTL · ATL · TSB (weekly)"), ft, "Fitness trend")
@@ -276,14 +295,17 @@ lr = _run_query(q.load_ramp, date_from, date_to)
 if len(lr):
     fig = go.Figure()
     fig.add_trace(
-        go.Bar(x=lr["week_start"], y=lr["load"], name="Load",
-               marker_color=CAT[0], opacity=0.85)
+        go.Bar(x=lr["week_start"], y=lr["load"], name="Load", marker_color=CAT[0], opacity=0.85)
     )
-    fig.add_trace(
-        line(lr["week_start"], lr["ramp_rate"], "Ramp rate", CAT[1], yaxis="y2")
+    fig.add_trace(line(lr["week_start"], lr["ramp_rate"], "Ramp rate", CAT[1], yaxis="y2"))
+    fig.add_hline(
+        y=0,
+        line_color=NEG,
+        line_dash="dot",
+        line_width=1,
+        annotation_text="ramp guardrail",
+        annotation_position="bottom right",
     )
-    fig.add_hline(y=0, line_color=NEG, line_dash="dot", line_width=1,
-                  annotation_text="ramp guardrail", annotation_position="bottom right")
     fig.update_layout(
         yaxis=dict(title="Weekly load"),
         yaxis2=dict(title="Ramp rate", overlaying="y", side="right"),
@@ -297,14 +319,17 @@ flush_row(2)
 # Volume & consistency
 # --------------------------------------------------------------------------
 
-section("Volume & consistency", "Run volume from activity records (detail era, ~Oct 2024 →). Weekly all-sport mix spans the full summary history.")
+section(
+    "Volume & consistency",
+    "Run volume from activity records (detail era, ~Oct 2024 →). "
+    "Weekly all-sport mix spans the full summary history.",
+)
 
 wr = _run_query(q.weekly_run_distance, date_from, date_to, effective_sports, surfaces)
 if len(wr):
     fig = go.Figure()
     fig.add_trace(
-        go.Bar(x=wr["week_start"], y=wr["run_km"], name="Run km",
-               marker_color=CAT[3], opacity=0.9)
+        go.Bar(x=wr["week_start"], y=wr["run_km"], name="Run km", marker_color=CAT[3], opacity=0.9)
     )
     fig.add_trace(
         line(wr["week_start"], wr["elev_gain_m"], "Elevation gain (m)", CAT[2], yaxis="y2")
@@ -329,7 +354,8 @@ if len(dr):
             x=[d.strftime("%Y-%m-%d") for d in pivot.columns],
             y=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
             colorscale=theme["heatmap"],
-            xgap=2, ygap=2,
+            xgap=2,
+            ygap=2,
             hovertemplate="%{x} (%{y}): %{z:.1f} km<extra></extra>",
             colorbar=dict(title="km", thickness=10, len=0.6),
         )
@@ -358,13 +384,19 @@ if len(sm):
 wc = _run_query(q.weekly_category, date_from, date_to)
 if len(wc):
     order = wc.groupby("category")["hours"].sum().sort_values(ascending=False).index.tolist()
-    pivot = wc.pivot_table(index="week_start", columns="category", values="hours", aggfunc="sum").fillna(0)
+    pivot = wc.pivot_table(
+        index="week_start", columns="category", values="hours", aggfunc="sum"
+    ).fillna(0)
     fig = go.Figure()
     for i, cat in enumerate(order):
         if cat in pivot.columns:
             fig.add_trace(
-                go.Bar(x=pivot.index, y=pivot[cat], name=SPORT_LABELS.get(cat, cat),
-                       marker_color=CAT[i % len(CAT)])
+                go.Bar(
+                    x=pivot.index,
+                    y=pivot[cat],
+                    name=SPORT_LABELS.get(cat, cat),
+                    marker_color=CAT[i % len(CAT)],
+                )
             )
     fig.update_layout(barmode="stack", hovermode="x unified")
     queue(apply_layout(fig, theme, "Weekly hours by sport (stacked)"), wc, "Weekly hours")
@@ -386,7 +418,7 @@ with right:
         try:
             pts = sel.selection.points if sel and sel.selection else []
             if pts:
-                picked = pts[0].customdata
+                picked = pts[0].customdata  # type: ignore[attr-defined]
         except (AttributeError, KeyError, TypeError):
             picked = None
         if picked != focus_sport:
@@ -411,13 +443,21 @@ flush_row(2)
 # Speed & progression
 # --------------------------------------------------------------------------
 
-section("Speed & progression", "Monthly aggregates, runs only. Pace = total moving time / distance; cadence in rpm (one foot).")
+section(
+    "Speed & progression",
+    "Monthly aggregates, runs only. "
+    "Pace = total moving time / distance; cadence in rpm (one foot).",
+)
 
 mp = _run_query(q.monthly_pace, date_from, date_to, effective_sports, surfaces)
 if len(mp):
     fig = go.Figure(line(mp["month"], mp["pace_min_km"], "Pace", CAT[0]))
     fig.update_traces(hovertemplate="%{x|%Y-%m}: %{y:.2f} min/km<extra></extra>")
-    queue(apply_layout(fig, theme, "Monthly run pace (min/km, lower is better)", 280), mp, "Monthly pace")
+    queue(
+        apply_layout(fig, theme, "Monthly run pace (min/km, lower is better)", 280),
+        mp,
+        "Monthly pace",
+    )
 
 mc = _run_query(q.monthly_cadence, date_from, date_to, effective_sports, surfaces)
 if len(mc):
@@ -429,7 +469,11 @@ me = _run_query(q.monthly_efficiency, date_from, date_to, effective_sports, surf
 if len(me):
     fig = go.Figure(line(me["month"], me["aerobic_efficiency"], "Aerobic efficiency", CAT[2]))
     fig.update_traces(hovertemplate="%{x|%Y-%m}: %{y:.3f} m/s per bpm<extra></extra>")
-    queue(apply_layout(fig, theme, "Aerobic efficiency (m/s per bpm, higher is better)", 280), me, "Aerobic efficiency")
+    queue(
+        apply_layout(fig, theme, "Aerobic efficiency (m/s per bpm, higher is better)", 280),
+        me,
+        "Aerobic efficiency",
+    )
 
 flush_row(3)
 
@@ -437,7 +481,11 @@ flush_row(3)
 # Surface & stride
 # --------------------------------------------------------------------------
 
-section("Surface & stride", "Road vs trail vs indoor. Stride = avg_speed·60/cadence, time-weighted; rows with suspect cadence (<40 rpm) are excluded upstream.")
+section(
+    "Surface & stride",
+    "Road vs trail vs indoor. Stride = avg_speed·60/cadence, time-weighted; "
+    "rows with suspect cadence (<40 rpm) are excluded upstream.",
+)
 
 sp = _run_query(q.surface_pace_trend, date_from, date_to, effective_sports, surfaces)
 if len(sp):
@@ -445,8 +493,14 @@ if len(sp):
     for s in SURFACE_ORDER:
         sub = sp[sp["run_surface"] == s]
         if len(sub):
-            fig.add_trace(line(sub["month"], sub["pace_min_km"], f"{s.capitalize()} pace",
-                               surface_color(theme, s)))
+            fig.add_trace(
+                line(
+                    sub["month"],
+                    sub["pace_min_km"],
+                    f"{s.capitalize()} pace",
+                    surface_color(theme, s),
+                )
+            )
     fig.update_layout(hovermode="x unified")
     queue(apply_layout(fig, theme, "Monthly pace by surface"), sp, "Pace by surface")
 
@@ -456,8 +510,14 @@ if len(stt):
     for s in SURFACE_ORDER:
         sub = stt[stt["run_surface"] == s]
         if len(sub):
-            fig.add_trace(line(sub["month"], sub["stride_m"], f"{s.capitalize()} stride",
-                               surface_color(theme, s)))
+            fig.add_trace(
+                line(
+                    sub["month"],
+                    sub["stride_m"],
+                    f"{s.capitalize()} stride",
+                    surface_color(theme, s),
+                )
+            )
     fig.update_layout(hovermode="x unified")
     queue(apply_layout(fig, theme, "Monthly stride length by surface (m)"), stt, "Stride trend")
 
@@ -469,10 +529,18 @@ if len(ht):
     for s in SURFACE_ORDER:
         sub = ht[ht["run_surface"] == s]
         if len(sub):
-            fig.add_trace(line(sub["month"], sub["elev_per_km"], f"{s.capitalize()} m/km",
-                               surface_color(theme, s)))
+            fig.add_trace(
+                line(
+                    sub["month"],
+                    sub["elev_per_km"],
+                    f"{s.capitalize()} m/km",
+                    surface_color(theme, s),
+                )
+            )
     fig.update_layout(hovermode="x unified")
-    queue(apply_layout(fig, theme, "Monthly elevation gain per km by surface"), ht, "Hilliness trend")
+    queue(
+        apply_layout(fig, theme, "Monthly elevation gain per km by surface"), ht, "Hilliness trend"
+    )
 
 ds = _run_query(q.decoupling_by_surface, date_from, date_to)
 if len(ds):
@@ -481,12 +549,18 @@ if len(ds):
             x=[s.capitalize() for s in ds["run_surface"]],
             y=ds["avg_decoupling"],
             customdata=ds["long_runs"],
-            marker_color=[surface_color(theme, s) if s in SURFACE_ORDER else theme["muted"]
-                          for s in ds["run_surface"]],
+            marker_color=[
+                surface_color(theme, s) if s in SURFACE_ORDER else theme["muted"]
+                for s in ds["run_surface"]
+            ],
             hovertemplate="%{x}: %{y:.1f}% avg decoupling · %{customdata} long runs<extra></extra>",
         )
     )
-    queue(apply_layout(fig, theme, "HR decoupling by surface (long runs)"), ds, "Decoupling by surface")
+    queue(
+        apply_layout(fig, theme, "HR decoupling by surface (long runs)"),
+        ds,
+        "Decoupling by surface",
+    )
 
 flush_row(2)
 
@@ -498,14 +572,20 @@ if len(svp):
         if len(sub):
             fig.add_trace(
                 go.Scatter(
-                    x=sub["pace_min_km"], y=sub["stride_m"], name=s.capitalize(),
-                    mode="markers", marker=dict(color=surface_color(theme, s), size=7, opacity=0.75),
+                    x=sub["pace_min_km"],
+                    y=sub["stride_m"],
+                    name=s.capitalize(),
+                    mode="markers",
+                    marker=dict(color=surface_color(theme, s), size=7, opacity=0.75),
                     customdata=sub["name"],
-                    hovertemplate="%{customdata}<br>%{x:.2f} min/km · %{y:.2f} m<extra>" + s + "</extra>",
+                    hovertemplate="%{customdata}<br>%{x:.2f} min/km · %{y:.2f} m<extra>"
+                    + s
+                    + "</extra>",
                 )
             )
     fig.update_layout(
-        xaxis=dict(title="Pace (min/km)"), yaxis=dict(title="Stride (m)"),
+        xaxis=dict(title="Pace (min/km)"),
+        yaxis=dict(title="Stride (m)"),
     )
     queue(apply_layout(fig, theme, "Stride vs pace, per activity", 340), svp, "Stride vs pace")
 
@@ -515,21 +595,31 @@ flush_row(1)
 # Pace distribution
 # --------------------------------------------------------------------------
 
-section("Pace distribution", "Weekly running hours by average pace block. `unknown` = missing speed data.")
+section(
+    "Pace distribution",
+    "Weekly running hours by average pace block. `unknown` = missing speed data.",
+)
 
 pb = _run_query(q.pace_blocks_weekly, date_from, date_to, effective_sports, surfaces)
 if len(pb):
     bucket_colors = {
-        "<4:00": CAT[3], "4\u20135": CAT[0], "5\u20136": CAT[6],
-        "6\u20137": CAT[2], "7+": CAT[1], "unknown": CAT[7],
+        "<4:00": CAT[3],
+        "4\u20135": CAT[0],
+        "5\u20136": CAT[6],
+        "6\u20137": CAT[2],
+        "7+": CAT[1],
+        "unknown": CAT[7],
     }
-    pivot = pb.pivot_table(index="week_start", columns="bucket", values="hours", aggfunc="sum").fillna(0)
+    pivot = pb.pivot_table(
+        index="week_start", columns="bucket", values="hours", aggfunc="sum"
+    ).fillna(0)
     fig = go.Figure()
     for bucket in q.PACE_BUCKETS:
         if bucket in pivot.columns:
             fig.add_trace(
-                go.Bar(x=pivot.index, y=pivot[bucket], name=bucket,
-                       marker_color=bucket_colors[bucket])
+                go.Bar(
+                    x=pivot.index, y=pivot[bucket], name=bucket, marker_color=bucket_colors[bucket]
+                )
             )
     fig.update_layout(barmode="stack", hovermode="x unified")
     queue(apply_layout(fig, theme, "Weekly hours by pace block (min/km)", 340), pb, "Pace blocks")
@@ -540,30 +630,48 @@ flush_row(1)
 # Environment
 # --------------------------------------------------------------------------
 
-section("Environment", "HR decoupling on long runs (≥75 min, computed locally from streams) and pace vs recorded temperature.")
+section(
+    "Environment",
+    "HR decoupling on long runs (≥75 min, computed locally from streams) "
+    "and pace vs recorded temperature.",
+)
 
 dt_df = _run_query(q.decoupling_trend, date_from, date_to)
 if len(dt_df):
     fig = go.Figure(
         go.Scatter(
-            x=dt_df["activity_start"], y=dt_df["decoupling_pct"], mode="markers",
-            name="Long run", marker=dict(color=NEG, size=8, opacity=0.8),
+            x=dt_df["activity_start"],
+            y=dt_df["decoupling_pct"],
+            mode="markers",
+            name="Long run",
+            marker=dict(color=NEG, size=8, opacity=0.8),
             customdata=dt_df["name"],
             hovertemplate="%{customdata}<br>%{x|%Y-%m-%d}: %{y:+.1f}%<extra></extra>",
         )
     )
     avg = float(dt_df["decoupling_pct"].mean())
-    fig.add_hline(y=avg, line_color=theme["ink"], line_dash="dash", line_width=1,
-                  annotation_text=f"avg {avg:+.1f}%")
+    fig.add_hline(
+        y=avg,
+        line_color=theme["ink"],
+        line_dash="dash",
+        line_width=1,
+        annotation_text=f"avg {avg:+.1f}%",
+    )
     fig.update_layout(yaxis=dict(title="Decoupling (%)"))
-    queue(apply_layout(fig, theme, "HR decoupling trend (positive = HR drift / fatigue)"), dt_df, "Decoupling trend")
+    queue(
+        apply_layout(fig, theme, "HR decoupling trend (positive = HR drift / fatigue)"),
+        dt_df,
+        "Decoupling trend",
+    )
 
 pt = _run_query(q.pace_by_temp, date_from, date_to, effective_sports, surfaces)
 if len(pt):
     labels = [f"{int(v)}°C" for v in pt["bucket_low"]]
     fig = go.Figure(
         go.Bar(
-            x=labels, y=pt["pace_min_km"], customdata=pt["runs"],
+            x=labels,
+            y=pt["pace_min_km"],
+            customdata=pt["runs"],
             marker_color=CAT[1],
             hovertemplate="%{x}: %{y:.2f} min/km · %{customdata} runs<extra></extra>",
         )

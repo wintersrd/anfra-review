@@ -33,7 +33,8 @@ def get_conn() -> duckdb.DuckDBPyConnection:
 def date_bounds() -> tuple[dt.date, dt.date]:
     """(earliest, latest) activity dates, for the sidebar date window."""
     row = _df(
-        "SELECT MIN(CAST(start_local AS DATE)) AS lo, MAX(CAST(start_local AS DATE)) AS hi FROM activities"
+        "SELECT MIN(CAST(start_local AS DATE)) AS lo,"
+        " MAX(CAST(start_local AS DATE)) AS hi FROM activities"
     ).iloc[0]
     return row["lo"], row["hi"]
 
@@ -82,9 +83,7 @@ def kpi_fitness() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
-def kpi_week_distance(
-    sports: tuple[str, ...], surfaces: tuple[str, ...]
-) -> pd.DataFrame:
+def kpi_week_distance(sports: tuple[str, ...], surfaces: tuple[str, ...]) -> pd.DataFrame:
     """This week's run km vs the trailing 4-week weekly average."""
     surf = _surface_clause(surfaces)
     sport = _sport_clause(sports)
@@ -119,7 +118,8 @@ def kpi_90d(sports: tuple[str, ...]) -> pd.DataFrame:
         f"""
         SELECT COALESCE(SUM(distance_m) / 1000.0, 0) AS km
         FROM activities
-        WHERE CAST(start_local AS DATE) >= (SELECT MAX(CAST(start_local AS DATE)) FROM activities) - 89
+        WHERE CAST(start_local AS DATE) >=
+              (SELECT MAX(CAST(start_local AS DATE)) FROM activities) - 89
           AND distance_m IS NOT NULL
           AND {sport}
         """
