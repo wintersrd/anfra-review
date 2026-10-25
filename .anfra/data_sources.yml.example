@@ -1,0 +1,11 @@
+# The data sources this repo's models query, by name: a model's or dataset's
+# data_source_name is one of these names. Each connection is passed as-is to
+# the database driver: its keys depend on the type.
+#
+# data_sources.yml holds credentials, so it is git-ignored; this repo commits
+# data_sources.yml.example instead, without them.
+data_sources:
+  running:
+    type: duckdb
+    connection:
+      path: /absolute/path/to/running-analytics/data/running.duckdb

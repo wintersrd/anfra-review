@@ -1,0 +1,54 @@
+Model decoupling_calc {
+  type: 'table'
+  label: 'HR Decoupling'
+  description: 'Computed HR decoupling for long runs (first half vs second half aerobic efficiency ratio).'
+  data_source_name: 'running'
+  table_name: 'decoupling_calc'
+
+  dimension activity_id {
+    label: 'Activity Id'
+    type: 'number'
+    primary_key: true
+    definition: @sql {{ #SOURCE.activity_id }};;
+  }
+  dimension activity_start {
+    label: 'Activity Date'
+    type: 'datetime'
+    definition: @sql {{ #SOURCE.activity_start }};;
+  }
+  dimension name {
+    label: 'Activity Name'
+    type: 'text'
+    definition: @sql {{ #SOURCE.name }};;
+  }
+  dimension decoupling_pct {
+    label: 'Decoupling'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.decoupling_pct }};;
+  }
+  dimension minutes {
+    label: 'Duration Minutes'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.minutes }};;
+  }
+
+  measure avg_decoupling {
+    label: 'Avg Decoupling'
+    type: 'number'
+    definition: @aql avg(decoupling_calc.decoupling_pct) ;;
+    format: '#,##0.0 "%"'
+  }
+  measure min_decoupling {
+    label: 'Best Decoupling'
+    type: 'number'
+    definition: @aql min(decoupling_calc.decoupling_pct) ;;
+    format: '#,##0.0 "%"'
+  }
+  measure long_run_count {
+    label: 'Long Runs'
+    type: 'number'
+    definition: @aql count(decoupling_calc.activity_id) ;;
+  }
+}

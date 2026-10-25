@@ -1,0 +1,1008 @@
+<!doctype html>
+<!--
+  Running Analytics — one-page training dashboard over dataset `running_analytics`.
+
+  Modules: KPI strip (CTL/ATL/TSB, weekly run distance vs 4-wk avg, 90-day distance,
+  recent HR decoupling) · fitness & load · volume & consistency · speed & progression ·
+  HR decoupling · pace by temperature.
+
+  Two layers, change one without the other:
+  - Design layer: the Basecoat links, the <style> block (anfra tokens from DESIGN.md mapped onto
+    Basecoat's variables), the markup classes, and chartTheme().
+  - SDK wiring: everything in the last <script> that touches `app`, a query, a filter or a drill.
+
+  Filter semantics: the date filter drives every query (activities.date, weekly_summary.week_start,
+  weekly_by_category.week_start, decoupling_calc.activity_start). The sport filter and the
+  sport-mix slice click (cross-filter) only reach activities-based queries; weekly_summary,
+  weekly_by_category and decoupling_calc are all-sport at their own grain.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Running Analytics</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css"
+    integrity="sha384-ZTIcl2CmY0wyM9ANOhomBco7rEUIlWztf6lGcLKCocKUrIgGCsfisuZyE+hadW8K" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/basecoat.cdn.min.css"
+    integrity="sha384-XWKdrxzE2X33lI8Q03C9fIbqdLWV11whVNycR2/3bMNJY73EEQOa7rmN+SeiSCor" crossorigin="anonymous">
+  <script src="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/js/all.min.js"
+    integrity="sha384-rD2ZCuReXV7nIneJcn1lsTn6yOv87YARLQyUsemVAxrYYHdy5hcAW8XZEQxx87Dj" crossorigin="anonymous" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js"
+    integrity="sha384-C2iskrW/uPW46KzOjrvJIQo4YkV8lkD+QS0CrDN18IIPIpT/g2USu8bTP3nvmIAD" crossorigin="anonymous"></script>
+  <style>
+    /* anfra tokens (DESIGN.md) on Basecoat's variables. Light is from DESIGN.md; the dark values
+       are derived from it, since DESIGN.md only lists the light theme. */
+    :root {
+      --background: oklch(0.955 0.007 88.6);          /* paper: the page */
+      --foreground: oklch(0.201 0.022 301.1);         /* ink */
+      --card: oklch(1 0 0);                           /* white: panels */
+      --card-foreground: oklch(0.201 0.022 301.1);
+      --popover: oklch(1 0 0);
+      --popover-foreground: oklch(0.201 0.022 301.1);
+      --primary: oklch(0.565 0.194 300.3);            /* the one violet */
+      --primary-foreground: oklch(1 0 0);
+      --secondary: oklch(0.973 0.005 95.1);           /* sunken paper */
+      --secondary-foreground: oklch(0.392 0.021 304.3);
+      --muted: oklch(0.973 0.005 95.1);
+      --muted-foreground: oklch(0.485 0.022 306.3);
+      --accent: oklch(0.946 0.027 304.8);             /* violet wash: hover, selected */
+      --accent-foreground: oklch(0.201 0.022 301.1);
+      --border: oklch(0.201 0.022 301.1 / 0.12);
+      --input: oklch(0.201 0.022 301.1 / 0.22);
+      --ring: oklch(0.565 0.194 300.3);
+      --radius: 0.625rem;
+      /* ECharts cannot parse oklch, so chart colors are hex. Violet first, fixed order. */
+      --chart-text: #5b5560;
+      --chart-grid: #e7e4e0;
+      --chart-cat-1: #7c4dce; --chart-cat-2: #1f9aa6; --chart-cat-3: #d9972b; --chart-cat-4: #d4527a;
+      --chart-cat-5: #3d7bd9; --chart-cat-6: #3f9d6b; --chart-cat-7: #dd7a3c; --chart-cat-8: #7d7785;
+    }
+    .dark {
+      --background: oklch(0.17 0.015 301);
+      --foreground: oklch(0.961 0.007 304.2);
+      --card: oklch(0.215 0.017 301);
+      --card-foreground: oklch(0.961 0.007 304.2);
+      --popover: oklch(0.245 0.018 301);
+      --popover-foreground: oklch(0.961 0.007 304.2);
+      --primary: oklch(0.7 0.16 300);
+      --primary-foreground: oklch(0.17 0.015 301);
+      --secondary: oklch(0.26 0.018 301);
+      --secondary-foreground: oklch(0.86 0.01 304);
+      --muted: oklch(0.26 0.018 301);
+      --muted-foreground: oklch(0.72 0.02 304);
+      --accent: oklch(0.32 0.05 301);
+      --accent-foreground: oklch(0.961 0.007 304.2);
+      --border: oklch(1 0 0 / 0.1);
+      --input: oklch(1 0 0 / 0.16);
+      --ring: oklch(0.7 0.16 300);
+      --chart-text: #b4aebb;
+      --chart-grid: #38333d;
+      --chart-cat-1: #a98af0; --chart-cat-2: #4cc3cf; --chart-cat-3: #f0b252; --chart-cat-4: #f07ea0;
+      --chart-cat-5: #7aa8f2; --chart-cat-6: #6cc496; --chart-cat-7: #f59a63; --chart-cat-8: #a39dab;
+    }
+
+    /* Three sizes only (20, 14, 12px), one control height (32px), tabular numerals. */
+    body {
+      font: 14px/20px "Inter Variable", Inter, system-ui, sans-serif;
+      font-variant-numeric: tabular-nums;
+      background: var(--background); color: var(--foreground);
+      margin: 0; padding: 24px; max-width: 1280px; margin-inline: auto;
+    }
+    h1 { font-size: 20px; line-height: 28px; font-weight: 600; margin: 0; text-wrap: balance; }
+    h2 { font-size: 14px; line-height: 20px; font-weight: 600; }
+    .caption { font-size: 12px; line-height: 16px; color: var(--muted-foreground); }
+    .header { margin-bottom: 16px; }
+    .note { margin: 0 0 16px; }
+    .footer { margin: 24px 0 8px; }
+    .btn, .input { height: 32px; font-size: 14px; }
+    .card { border-radius: 14px; box-shadow: none; position: relative; }
+    .card > header { padding-bottom: 0; }
+    .card h2 { font-size: 14px; line-height: 20px; font-weight: 600; }
+
+    /* Filter bar: one row, wraps on narrow screens. */
+    /* Basecoat's .card is a clipped column: make the bar a row and let combobox dropdowns overflow. */
+    .card.filters { flex-direction: row; flex-wrap: wrap; gap: 16px; align-items: flex-end;
+                    justify-content: flex-start; padding: 12px 16px; margin-bottom: 12px;
+                    overflow: visible; }
+    .field-group { display: flex; flex-direction: column; gap: 8px; }
+    .field-group > label, .field-group > .caption { font-weight: 500; }
+    .date-range { display: flex; align-items: center; gap: 8px; }
+    .date-range .input { width: 9.5rem; }
+    .presets { display: flex; gap: 4px; }
+    .spacer { flex: 1; }
+
+    /* Modules */
+    .module-title { margin: 20px 0 8px; font-size: 14px; font-weight: 600; }
+    .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 4px; }
+    @media (max-width: 1100px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 640px)  { .kpis { grid-template-columns: repeat(2, 1fr); } }
+    .kpi { padding: 12px 14px; gap: 2px; }
+    .kpi-label { font-size: 12px; line-height: 16px; color: var(--muted-foreground); }
+    .kpi-value { font-size: 20px; line-height: 28px; font-weight: 600; }
+    .kpi-sub { font-size: 12px; line-height: 16px; color: var(--muted-foreground); }
+
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    @media (max-width: 900px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+    .chart { height: 300px; }
+    .chart.tall { height: 340px; }
+    .status { position: absolute; inset: 46px 16px 16px; display: none; align-items: center;
+              justify-content: center; background: color-mix(in oklab, var(--card) 85%, transparent); }
+    .kpi .status { inset: 0; border-radius: 14px; }
+    .status.visible { display: flex; }
+    .status > * { width: 100%; }
+    .status .skeleton { height: 100%; min-height: 40px; border-radius: 10px; }
+    .status .empty { text-align: center; color: var(--muted-foreground); }
+  </style>
+</head>
+<body>
+  <main data-anfra-container="page" data-anfra-label="Running Analytics">
+    <div class="header">
+      <h1>Running Analytics</h1>
+      <div class="caption" id="user"></div>
+    </div>
+
+    <div class="card filters" data-anfra-container="controls" data-anfra-label="Filters">
+      <div class="field-group" data-anfra-block="date-picker" data-anfra-label="Date range" data-anfra-control="dates">
+        <label for="date-from">Date range</label>
+        <div class="date-range">
+          <input id="date-from" class="input" type="date" aria-label="From">
+          <span class="caption">to</span>
+          <input id="date-to" class="input" type="date" aria-label="To">
+        </div>
+      </div>
+
+      <div class="field-group">
+        <span class="caption">Quick range</span>
+        <div class="presets">
+          <button class="btn" data-variant="outline" type="button" data-days="30">30d</button>
+          <button class="btn" data-variant="outline" type="button" data-days="90">90d</button>
+          <button class="btn" data-variant="outline" type="button" data-days="ytd">YTD</button>
+          <button class="btn" data-variant="ghost" type="button" data-days="all">All</button>
+        </div>
+      </div>
+
+      <div class="field-group" data-anfra-block="sport-picker" data-anfra-label="Sport" data-anfra-control="sport">
+        <label for="sport-input">Sport</label>
+        <!-- Basecoat multi-select combobox: options are added once loadOptions() resolves -->
+        <div id="sport-combobox" class="combobox" style="width: 220px" data-auto-highlight="true">
+          <input id="sport-input" type="text" role="combobox" placeholder="All sports" autocomplete="off"
+                 autocorrect="off" spellcheck="false" aria-autocomplete="list" aria-expanded="false"
+                 aria-controls="sport-listbox">
+          <div id="sport-popover" data-popover aria-hidden="true">
+            <div role="listbox" id="sport-listbox" aria-orientation="vertical" aria-multiselectable="true"
+                 data-empty="No sports found."></div>
+          </div>
+          <input type="hidden" name="sport" value="[]">
+        </div>
+      </div>
+
+      <div class="spacer"></div>
+      <button id="clear-selection" class="btn" data-variant="ghost" type="button">Clear selection</button>
+    </div>
+    <p class="caption note">
+      The date range applies to every chart. The sport picker and clicking a slice in the sport-mix
+      donut filter the activity-based charts and tiles; the weekly all-sport charts (fitness &amp; load,
+      hours by category) and HR decoupling keep their own grain and ignore them.
+    </p>
+
+    <div class="kpis" data-anfra-container="kpis" data-anfra-label="Insights">
+      <section class="card kpi" data-anfra-block="kpi-ctl" data-anfra-label="Fitness (CTL)" data-anfra-query="kpiFitness">
+        <div class="kpi-label">Fitness (CTL) · latest week</div>
+        <div class="kpi-value" id="kpi-ctl-value">–</div>
+        <div class="kpi-sub">all-sport weekly grain</div>
+        <div id="kpi-ctl-status" class="status"></div>
+      </section>
+      <section class="card kpi" data-anfra-block="kpi-atl" data-anfra-label="Fatigue (ATL)" data-anfra-query="kpiFitness">
+        <div class="kpi-label">Fatigue (ATL) · latest week</div>
+        <div class="kpi-value" id="kpi-atl-value">–</div>
+        <div class="kpi-sub">all-sport weekly grain</div>
+        <div id="kpi-atl-status" class="status"></div>
+      </section>
+      <section class="card kpi" data-anfra-block="kpi-tsb" data-anfra-label="Form (TSB)" data-anfra-query="kpiFitness">
+        <div class="kpi-label">Form (TSB) · latest week</div>
+        <div class="kpi-value" id="kpi-tsb-value">–</div>
+        <div class="kpi-sub">fresh (&gt;0) vs fatigued (&lt;0)</div>
+        <div id="kpi-tsb-status" class="status"></div>
+      </section>
+      <section class="card kpi" data-anfra-block="kpi-week-dist" data-anfra-label="Run distance this week" data-anfra-query="kpiWeekDist">
+        <div class="kpi-label">Run distance · this week</div>
+        <div class="kpi-value" id="kpi-week-value">–</div>
+        <div class="kpi-sub" id="kpi-week-sub">vs 4-week avg</div>
+        <div id="kpi-week-status" class="status"></div>
+      </section>
+      <section class="card kpi" data-anfra-block="kpi-dist-90d" data-anfra-label="Distance last 90 days" data-anfra-query="kpi90d">
+        <div class="kpi-label">Distance · last 90 days</div>
+        <div class="kpi-value" id="kpi-90d-value">–</div>
+        <div class="kpi-sub">all sports</div>
+        <div id="kpi-90d-status" class="status"></div>
+      </section>
+      <section class="card kpi" data-anfra-block="kpi-decoupling" data-anfra-label="HR decoupling recent" data-anfra-query="kpiDecoupling">
+        <div class="kpi-label">HR decoupling · last 90 days</div>
+        <div class="kpi-value" id="kpi-dec-value">–</div>
+        <div class="kpi-sub" id="kpi-dec-sub">long runs ≥ 75 min</div>
+        <div id="kpi-dec-status" class="status"></div>
+      </section>
+    </div>
+
+    <section data-anfra-container="module-fitness" data-anfra-label="Fitness &amp; Load">
+      <h2 class="module-title">Fitness &amp; load <span class="caption">weekly · all sports</span></h2>
+      <div class="grid2">
+        <div class="card" data-anfra-block="fitness-trend" data-anfra-label="Fitness, fatigue &amp; form">
+          <header><h2>Fitness, fatigue &amp; form <span class="caption">CTL / ATL left · TSB right</span></h2></header>
+          <section><div id="fitness-trend" class="chart" data-anfra-query="fitnessTrend"></div></section>
+          <div id="fitness-trend-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="load-ramp" data-anfra-label="Weekly load &amp; ramp rate">
+          <header><h2>Weekly load &amp; ramp rate <span class="caption">load left · ramp right</span></h2></header>
+          <section><div id="load-ramp" class="chart" data-anfra-query="loadRamp"></div></section>
+          <div id="load-ramp-status" class="status"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-anfra-container="module-volume" data-anfra-label="Volume &amp; Consistency">
+      <h2 class="module-title">Volume &amp; consistency</h2>
+      <div class="grid2">
+        <div class="card" data-anfra-block="weekly-run-dist" data-anfra-label="Weekly run distance &amp; elevation">
+          <header><h2>Weekly run distance <span class="caption">km left · elevation gain right</span></h2></header>
+          <section><div id="weekly-run-dist" class="chart" data-anfra-query="weeklyRunDist"></div></section>
+          <div id="weekly-run-dist-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="sport-mix" data-anfra-label="Time by sport">
+          <header><h2>Time by sport <span class="caption">click a slice to filter the other charts</span></h2></header>
+          <section><div id="sport-mix" class="chart" data-anfra-query="sportMix"></div></section>
+          <div id="sport-mix-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="daily-heatmap" data-anfra-label="Daily run distance heatmap">
+          <header><h2>Daily run distance <span class="caption">calendar heatmap · run km per day</span></h2></header>
+          <section><div id="daily-heatmap" class="chart tall" data-anfra-query="dailyRuns"></div></section>
+          <div id="daily-heatmap-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="weekly-category" data-anfra-label="Weekly hours by category">
+          <header><h2>Weekly hours by category <span class="caption">stacked · all sports</span></h2></header>
+          <section><div id="weekly-category" class="chart" data-anfra-query="weeklyCategory"></div></section>
+          <div id="weekly-category-status" class="status"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-anfra-container="module-speed" data-anfra-label="Speed &amp; Progression">
+      <h2 class="module-title">Speed &amp; progression <span class="caption">monthly · runs only</span></h2>
+      <div class="grid3">
+        <div class="card" data-anfra-block="monthly-pace" data-anfra-label="Monthly run pace">
+          <header><h2>Run pace by month <span class="caption">lower = faster</span></h2></header>
+          <section><div id="monthly-pace" class="chart" data-anfra-query="monthlyPace"></div></section>
+          <div id="monthly-pace-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="monthly-cadence" data-anfra-label="Monthly run cadence">
+          <header><h2>Avg run cadence by month</h2></header>
+          <section><div id="monthly-cadence" class="chart" data-anfra-query="monthlyCadence"></div></section>
+          <div id="monthly-cadence-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="monthly-efficiency" data-anfra-label="Monthly aerobic efficiency">
+          <header><h2>Aerobic efficiency by month <span class="caption">m/s per bpm · higher = better</span></h2></header>
+          <section><div id="monthly-efficiency" class="chart" data-anfra-query="monthlyEfficiency"></div></section>
+          <div id="monthly-efficiency-status" class="status"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-anfra-container="module-decoupling" data-anfra-label="HR Decoupling">
+      <h2 class="module-title">HR decoupling <span class="caption">long runs ≥ 75 min · first-half vs second-half HR drift</span></h2>
+      <div class="grid2">
+        <div class="card" data-anfra-block="decoupling-trend" data-anfra-label="Decoupling by activity">
+          <header><h2>Decoupling over time <span class="caption">dash = average</span></h2></header>
+          <section><div id="decoupling-trend" class="chart" data-anfra-query="decouplingTrend"></div></section>
+          <div id="decoupling-trend-status" class="status"></div>
+        </div>
+        <div class="card kpi" data-anfra-block="decoupling-note" data-anfra-label="How to read it">
+          <header><h2>How to read it</h2></header>
+          <section class="caption">
+            <p>HR decoupling compares aerobic efficiency (pace per heart rate) in the first half of a
+            long run against the second half. Values near 0% mean you held pace at a steady heart
+            rate; larger positive values mean heart rate drifted up relative to pace — a sign of
+            heat, hydration or aerobic fatigue. The recent-average tile above covers the last 90
+            days; the chart shows every qualifying long run.</p>
+            <p>Decoupling is computed only for runs of 75 minutes or more.</p>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <section data-anfra-container="module-environment" data-anfra-label="Environment">
+      <h2 class="module-title">Environment <span class="caption">runs with a recorded temperature</span></h2>
+      <div class="grid2">
+        <div class="card" data-anfra-block="pace-by-temp" data-anfra-label="Run pace by temperature">
+          <header><h2>Run pace by temperature <span class="caption">lower = faster</span></h2></header>
+          <section><div id="pace-by-temp" class="chart" data-anfra-query="paceByTemp"></div></section>
+          <div id="pace-by-temp-status" class="status"></div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="caption footer">
+      Data source: intervals.icu · HR decoupling computed for runs ≥ 75 min · Aerobic efficiency =
+      time-weighted average speed (m/s) ÷ average heart rate (bpm), runs only · Pace in min/km,
+      lower = faster · Fitness (CTL), Fatigue (ATL) and Form (TSB) come from intervals.icu at
+      weekly grain.
+    </footer>
+  </main>
+
+  <script>
+    // ---- Design layer: follow the OS light/dark setting (no storage: the frame is sandboxed). ----
+    const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const applyTheme = () => document.documentElement.classList.toggle('dark', darkQuery.matches);
+    applyTheme();
+
+    function chartTheme () {
+      const css = getComputedStyle(document.documentElement);
+      const get = (name) => css.getPropertyValue(name).trim();
+      return {
+        dark: darkQuery.matches,
+        text: get('--chart-text'),
+        grid: get('--chart-grid'),
+        cat: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => get(`--chart-cat-${n}`)),
+      };
+    }
+
+    // ---- Formatting helpers. Numbers arrive as strings; charts and math need Number(). ----
+    const num = (v) => (v == null ? null : Number(v));
+    const fmt0 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+    const fmt1 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+    const fmt2 = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const signed = (v) => (v == null ? '–' : (v > 0 ? '+' : '') + fmt0.format(v));
+    const km = (v) => (v == null ? '–' : fmt1.format(v) + ' km');
+    // minutes (float) -> m:ss
+    function paceFmt (v) {
+      if (v == null || !isFinite(v)) return '–';
+      const total = Math.round(v * 60);
+      const m = Math.floor(total / 60);
+      const s = total - m * 60;
+      return `${m}:${String(s).padStart(2, '0')}`;
+    }
+    const day = (iso) => String(iso).slice(0, 10);
+
+    // ---- SDK wiring ----
+    const app = Anfra.createApp({ title: 'Running Analytics' });
+
+    // Module F insights: KPIs -------------------------------------------------
+    const kpiFitness = app.createQuery('kpiFitness', {
+      dataset: 'running_analytics',
+      aql: `
+        metric latest_ctl = weekly_summary.ctl | where(weekly_summary.week_start == max(weekly_summary.week_start));
+        metric latest_atl = weekly_summary.atl | where(weekly_summary.week_start == max(weekly_summary.week_start));
+        metric latest_tsb = weekly_summary.tsb | where(weekly_summary.week_start == max(weekly_summary.week_start));
+        explore {
+          measures { ctl: latest_ctl, atl: latest_atl, tsb: latest_tsb }
+        }
+      `,
+    });
+
+    const kpiWeekDist = app.createQuery('kpiWeekDist', {
+      dataset: 'running_analytics',
+      aql: `
+        metric this_week_run_km = run_distance_km | where(activities.week_start == max(activities.week_start));
+        metric avg_4wk_run_km = unique(activities.week_start) | select(v: run_distance_km) | avg(v);
+        explore {
+          measures { this_week: this_week_run_km, avg_4wk: avg_4wk_run_km }
+          filters { activities.week_start matches @(last 4 weeks) }
+        }
+      `,
+    });
+
+    const kpi90d = app.createQuery('kpi90d', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          measures { dist_km: total_distance_km }
+          filters { activities.date matches @(last 90 days) }
+        }
+      `,
+    });
+
+    const kpiDecoupling = app.createQuery('kpiDecoupling', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          measures { avg_decoupling_pct: decoupling_calc.avg_decoupling, long_runs: decoupling_calc.long_run_count }
+          filters { decoupling_calc.activity_start matches @(last 90 days) }
+        }
+      `,
+    });
+
+    // Module: Fitness & Load --------------------------------------------------
+    const fitnessTrend = app.createQuery('fitnessTrend', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { week: weekly_summary.week_start }
+          measures { ctl: weekly_summary.ctl, atl: weekly_summary.atl, tsb: weekly_summary.tsb }
+          sorts { week asc }
+        }
+      `,
+    });
+
+    const loadRamp = app.createQuery('loadRamp', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { week: weekly_summary.week_start }
+          measures { load: weekly_summary.weekly_load, ramp_rate: weekly_summary.weekly_ramp_rate }
+          sorts { week asc }
+        }
+      `,
+    });
+
+    // Module: Volume & Consistency -------------------------------------------
+    const weeklyRunDist = app.createQuery('weeklyRunDist', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { week: activities.week_start }
+          measures { run_km: run_distance_km, elev_gain_m: run_elev_gain_m }
+          sorts { week asc }
+        }
+      `,
+    });
+
+    const dailyRuns = app.createQuery('dailyRuns', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { day: activities.date }
+          measures { run_km: run_distance_km }
+          sorts { day asc }
+        }
+      `,
+    });
+
+    const sportMix = app.createQuery('sportMix', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { sport: activities.sport_group }
+          measures { hours: total_time_h }
+          sorts { hours desc }
+        }
+      `,
+    });
+
+    const weeklyCategory = app.createQuery('weeklyCategory', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { week: weekly_by_category.week_start, category: weekly_by_category.category }
+          measures { hours: weekly_by_category.cat_time_h }
+          sorts { week asc }
+        }
+      `,
+    });
+
+    // Module: Speed & Progression --------------------------------------------
+    const monthlyPace = app.createQuery('monthlyPace', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { month: activities.month }
+          measures { pace_min_km: run_pace_min_km }
+          sorts { month asc }
+        }
+      `,
+    });
+
+    const monthlyCadence = app.createQuery('monthlyCadence', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { month: activities.month }
+          measures { cadence_spm: run_avg_cadence }
+          sorts { month asc }
+        }
+      `,
+    });
+
+    const monthlyEfficiency = app.createQuery('monthlyEfficiency', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { month: activities.month }
+          measures { aerobic_efficiency: run_aerobic_efficiency }
+          sorts { month asc }
+        }
+      `,
+    });
+
+    // Module: HR Decoupling ---------------------------------------------------
+    const decouplingTrend = app.createQuery('decouplingTrend', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { start: decoupling_calc.activity_start, activity_name: decoupling_calc.name }
+          measures { decoupling_pct: decoupling_calc.avg_decoupling }
+          sorts { start asc }
+        }
+      `,
+    });
+
+    // Module: Environment -----------------------------------------------------
+    const paceByTemp = app.createQuery('paceByTemp', {
+      dataset: 'running_analytics',
+      aql: `
+        dimension activities.temp_bucket_num = case(
+          when: activities.avg_temp_c is null, then: -1,
+          when: activities.avg_temp_c < 0, then: 0,
+          when: activities.avg_temp_c < 10, then: 1,
+          when: activities.avg_temp_c < 20, then: 2,
+          when: activities.avg_temp_c < 30, then: 3,
+          else: 4
+        );
+        dimension activities.temp_bucket = case(
+          when: activities.avg_temp_c is null, then: 'unknown',
+          when: activities.avg_temp_c < 0, then: '<0C',
+          when: activities.avg_temp_c < 10, then: '0-10C',
+          when: activities.avg_temp_c < 20, then: '10-20C',
+          when: activities.avg_temp_c < 30, then: '20-30C',
+          else: '30C+'
+        );
+        explore {
+          dimensions { bucket_num: activities.temp_bucket_num, bucket: activities.temp_bucket }
+          measures { pace_min_km: run_pace_min_km, runs: run_activities }
+          filters { activities.avg_temp_c is not null }
+          sorts { bucket_num asc }
+        }
+      `,
+    });
+
+    // Controls ----------------------------------------------------------------
+    const dates = app.createFilter('dates', { dataset: 'running_analytics', field: 'activities.date' });
+    const sport = app.createFilter('sport', { dataset: 'running_analytics', field: 'activities.sport_group', label: 'Sport' });
+
+    // Date range: every query, on the date its grain uses.
+    const byDate = { field: 'activities.date' };
+    const byWeek = { field: 'weekly_summary.week_start' };
+    app.mapControl(dates, kpiFitness, byWeek);
+    app.mapControl(dates, fitnessTrend, byWeek);
+    app.mapControl(dates, loadRamp, byWeek);
+    app.mapControl(dates, weeklyCategory, { field: 'weekly_by_category.week_start' });
+    app.mapControl(dates, kpiDecoupling, { field: 'decoupling_calc.activity_start' });
+    app.mapControl(dates, decouplingTrend, { field: 'decoupling_calc.activity_start' });
+    app.mapControl(dates, kpiWeekDist, byDate);
+    app.mapControl(dates, kpi90d, byDate);
+    app.mapControl(dates, weeklyRunDist, byDate);
+    app.mapControl(dates, dailyRuns, byDate);
+    app.mapControl(dates, sportMix, byDate);
+    app.mapControl(dates, monthlyPace, byDate);
+    app.mapControl(dates, monthlyCadence, byDate);
+    app.mapControl(dates, monthlyEfficiency, byDate);
+    app.mapControl(dates, paceByTemp, byDate);
+
+    // Sport filter: activities-based queries only. Weekly all-sport queries and
+    // decoupling_calc are deliberately left out (their grain is not per-sport).
+    const bySport = { field: 'activities.sport_group' };
+    app.mapControl(sport, kpiWeekDist, bySport);
+    app.mapControl(sport, kpi90d, bySport);
+    app.mapControl(sport, weeklyRunDist, bySport);
+    app.mapControl(sport, dailyRuns, bySport);
+    app.mapControl(sport, sportMix, bySport);
+    app.mapControl(sport, monthlyPace, bySport);
+    app.mapControl(sport, monthlyCadence, bySport);
+    app.mapControl(sport, monthlyEfficiency, bySport);
+    app.mapControl(sport, paceByTemp, bySport);
+
+    // Cross-filter: a clicked sport-mix slice filters the activity-based charts and tiles.
+    app.mapCrossFilter(sportMix, kpiWeekDist);
+    app.mapCrossFilter(sportMix, kpi90d);
+    app.mapCrossFilter(sportMix, weeklyRunDist);
+    app.mapCrossFilter(sportMix, dailyRuns);
+    app.mapCrossFilter(sportMix, monthlyPace);
+    app.mapCrossFilter(sportMix, monthlyCadence);
+    app.mapCrossFilter(sportMix, monthlyEfficiency);
+    app.mapCrossFilter(sportMix, paceByTemp);
+
+    document.getElementById('user').textContent = `Signed in as ${Anfra.user.name}`;
+
+    // ---- Charts ----
+    const charts = {};
+    for (const id of ['fitness-trend', 'load-ramp', 'weekly-run-dist', 'daily-heatmap', 'sport-mix',
+                      'weekly-category', 'monthly-pace', 'monthly-cadence', 'monthly-efficiency',
+                      'decoupling-trend', 'pace-by-temp']) {
+      charts[id] = echarts.init(document.getElementById(id));
+    }
+
+    const logged = new Set();
+
+    // The four states of a query: loading, error, no rows, success (status stays hidden).
+    function renderStatus (query, elementId, emptyText) {
+      const el = document.getElementById(elementId);
+      el.replaceChildren();
+      if (query.state === 'executing') {
+        el.append(Object.assign(document.createElement('div'), { className: 'skeleton' }));
+      } else if (query.state === 'error') {
+        const alert = Object.assign(document.createElement('div'), { className: 'alert' });
+        alert.dataset.variant = 'destructive';
+        const title = document.createElement('h2');
+        title.textContent = "Couldn't load this chart";
+        const detail = document.createElement('section');
+        detail.textContent = query.error.message;
+        alert.append(title, detail);
+        el.append(alert);
+      } else if (query.state === 'success' && query.result.rows.length === 0) {
+        el.append(Object.assign(document.createElement('div'), { className: 'empty', textContent: emptyText }));
+      }
+      el.classList.toggle('visible', el.childElementCount > 0);
+    }
+
+    function logFirstResult (query) {
+      if (query.state !== 'success' || logged.has(query.name)) return;
+      logged.add(query.name);
+      console.log(query.name, 'columns', query.result.columns, 'first row', query.result.rows[0],
+        'executed AQL', query.result.debug?.executedAql);
+    }
+
+    function axisStyle (theme) {
+      return {
+        axisLabel: { color: theme.text },
+        axisLine: { lineStyle: { color: theme.grid } },
+        splitLine: { lineStyle: { color: theme.grid } },
+      };
+    }
+
+    function kpis (theme) {
+      const set = (id, text) => { document.getElementById(id).textContent = text; };
+      if (kpiFitness.state === 'success' && kpiFitness.result.rows.length) {
+        const r = kpiFitness.result.rows[0];
+        set('kpi-ctl-value', fmt0.format(num(r.ctl)));
+        set('kpi-atl-value', fmt0.format(num(r.atl)));
+        set('kpi-tsb-value', signed(num(r.tsb)));
+      }
+      if (kpiWeekDist.state === 'success' && kpiWeekDist.result.rows.length) {
+        const r = kpiWeekDist.result.rows[0];
+        const thisWeek = num(r.this_week);
+        const avg4 = num(r.avg_4wk);
+        set('kpi-week-value', km(thisWeek));
+        let sub = `4-wk avg ${km(avg4)}`;
+        if (thisWeek != null && avg4) {
+          const pct = (thisWeek - avg4) / avg4 * 100;
+          sub += ` · ${(pct > 0 ? '+' : '')}${fmt0.format(pct)}%`;
+        }
+        set('kpi-week-sub', sub);
+      }
+      if (kpi90d.state === 'success' && kpi90d.result.rows.length) {
+        set('kpi-90d-value', km(num(kpi90d.result.rows[0].dist_km)));
+      }
+      if (kpiDecoupling.state === 'success' && kpiDecoupling.result.rows.length) {
+        const r = kpiDecoupling.result.rows[0];
+        const dec = num(r.avg_decoupling_pct);
+        set('kpi-dec-value', dec == null ? '–' : fmt1.format(dec) + '%');
+        set('kpi-dec-sub', `${fmt0.format(num(r.long_runs) || 0)} long runs ≥ 75 min`);
+      }
+    }
+
+    function renderFitnessTrend (theme) {
+      const rows = fitnessTrend.result.rows;
+      charts['fitness-trend'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
+        tooltip: { trigger: 'axis' },
+        xAxis: { type: 'category', data: rows.map((r) => day(r.week)), ...axisStyle(theme) },
+        yAxis: [
+          { type: 'value', ...axisStyle(theme) },
+          { type: 'value', splitLine: { show: false }, axisLabel: { color: theme.text }, axisLine: { lineStyle: { color: theme.grid } } },
+        ],
+        series: [
+          { name: 'CTL', type: 'line', smooth: true, showSymbol: false,
+            lineStyle: { color: theme.cat[0], width: 2 }, itemStyle: { color: theme.cat[0] },
+            data: rows.map((r) => num(r.ctl)) },
+          { name: 'ATL', type: 'line', smooth: true, showSymbol: false,
+            lineStyle: { color: theme.cat[3], width: 2 }, itemStyle: { color: theme.cat[3] },
+            data: rows.map((r) => num(r.atl)) },
+          { name: 'TSB', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 1,
+            lineStyle: { color: theme.cat[2], width: 2, type: 'dashed' }, itemStyle: { color: theme.cat[2] },
+            data: rows.map((r) => num(r.tsb)),
+            markLine: { silent: true, symbol: 'none',
+              lineStyle: { color: theme.grid, type: 'solid' },
+              label: { show: false },
+              data: [{ yAxis: 0 }] } },
+        ],
+      });
+    }
+
+    function renderLoadRamp (theme) {
+      const rows = loadRamp.result.rows;
+      charts['load-ramp'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
+        tooltip: { trigger: 'axis' },
+        xAxis: { type: 'category', data: rows.map((r) => day(r.week)), ...axisStyle(theme) },
+        yAxis: [
+          { type: 'value', ...axisStyle(theme) },
+          { type: 'value', splitLine: { show: false }, axisLabel: { color: theme.text }, axisLine: { lineStyle: { color: theme.grid } } },
+        ],
+        series: [
+          { name: 'Weekly load', type: 'bar', barMaxWidth: 22,
+            itemStyle: { color: theme.cat[0], borderRadius: [3, 3, 0, 0] },
+            data: rows.map((r) => num(r.load)) },
+          { name: 'Ramp rate', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 1,
+            lineStyle: { color: theme.cat[3], width: 2 }, itemStyle: { color: theme.cat[3] },
+            data: rows.map((r) => num(r.ramp_rate)) },
+        ],
+      });
+    }
+
+    function renderWeeklyRunDist (theme) {
+      const rows = weeklyRunDist.result.rows;
+      charts['weekly-run-dist'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
+        tooltip: { trigger: 'axis' },
+        xAxis: { type: 'category', data: rows.map((r) => day(r.week)), ...axisStyle(theme) },
+        yAxis: [
+          { type: 'value', axisLabel: { color: theme.text, formatter: (v) => fmt0.format(v) + ' km' }, splitLine: axisStyle(theme).splitLine },
+          { type: 'value', splitLine: { show: false }, axisLabel: { color: theme.text, formatter: (v) => fmt0.format(v) + ' m' }, axisLine: { lineStyle: { color: theme.grid } } },
+        ],
+        series: [
+          { name: 'Run distance', type: 'bar', barMaxWidth: 22,
+            itemStyle: { color: theme.cat[0], borderRadius: [3, 3, 0, 0] },
+            data: rows.map((r) => num(r.run_km)) },
+          { name: 'Elevation gain', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 1,
+            lineStyle: { color: theme.cat[6], width: 2 }, itemStyle: { color: theme.cat[6] },
+            data: rows.map((r) => num(r.elev_gain_m)) },
+        ],
+      });
+    }
+
+    function renderDailyHeatmap (theme) {
+      const rows = dailyRuns.result.rows;
+      const points = rows.map((r) => [day(r.day), num(r.run_km) || 0]);
+      const maxKm = Math.max(...points.map((p) => p[1]), 1);
+      const ramp = theme.dark ? ['#332b47', '#6a52a8', '#a98af0'] : ['#ede7f6', '#b49ae4', '#7c4dce'];
+      charts['daily-heatmap'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        tooltip: { formatter: (p) => `${p.value[0]} · ${km(p.value[1])}` },
+        visualMap: { show: true, min: 0, max: maxKm, calculable: false, orient: 'horizontal',
+                     left: 'center', bottom: 0, itemHeight: 60, textStyle: { color: theme.text },
+                     inRange: { color: ramp } },
+        calendar: {
+          top: 24, left: 40, right: 16, bottom: 48,
+          cellSize: ['auto', 15],
+          range: [points[0][0], points[points.length - 1][0]],
+          itemStyle: { color: 'transparent', borderColor: theme.grid, borderWidth: 1 },
+          splitLine: { lineStyle: { color: theme.grid } },
+          dayLabel: { firstDay: 1, color: theme.text, fontSize: 11 },
+          monthLabel: { color: theme.text, fontSize: 11 },
+          yearLabel: { show: false },
+        },
+        series: [{ type: 'heatmap', coordinateSystem: 'calendar', data: points }],
+      });
+    }
+
+    function renderSportMix (theme) {
+      const rows = sportMix.result.rows;
+      const selected = new Set(sportMix.selectedRows.map((r) => r.sport));
+      charts['sport-mix'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        tooltip: { valueFormatter: (v) => fmt1.format(v) + ' h' },
+        series: [{
+          type: 'pie', radius: ['42%', '68%'], center: ['50%', '50%'],
+          data: rows.map((r, i) => ({
+            name: r.sport,
+            value: num(r.hours),
+            itemStyle: { color: theme.cat[i % 8],
+                         opacity: selected.size === 0 || selected.has(r.sport) ? 1 : 0.3 },
+          })),
+          label: { color: theme.text, formatter: (p) => `${p.name}  ${fmt1.format(p.value)}h` },
+          labelLine: { lineStyle: { color: theme.grid } },
+        }],
+      });
+    }
+
+    function renderWeeklyCategory (theme) {
+      const rows = weeklyCategory.result.rows;
+      const weeks = [...new Set(rows.map((r) => day(r.week)))];
+      const cats = [...new Set(rows.map((r) => r.category))];
+      const cell = {};
+      rows.forEach((r) => { cell[day(r.week) + '|' + r.category] = num(r.hours); });
+      charts['weekly-category'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
+        tooltip: { trigger: 'axis', valueFormatter: (v) => fmt1.format(v) + ' h' },
+        xAxis: { type: 'category', data: weeks, ...axisStyle(theme) },
+        yAxis: { type: 'value', axisLabel: { color: theme.text, formatter: (v) => fmt0.format(v) + ' h' }, splitLine: axisStyle(theme).splitLine },
+        series: cats.map((c, i) => ({
+          name: c, type: 'bar', stack: 'hours', barMaxWidth: 28,
+          itemStyle: { color: theme.cat[i % 8] },
+          data: weeks.map((w) => cell[w + '|' + c] ?? 0),
+        })),
+      });
+    }
+
+    function renderMonthlyLine (query, chartId, alias, colorIndex, opts, theme) {
+      const rows = query.result.rows;
+      charts[chartId].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        grid: { left: 8, right: 8, top: 16, bottom: 8, containLabel: true },
+        tooltip: { trigger: 'axis', valueFormatter: opts.tooltipFormatter },
+        xAxis: { type: 'category', data: rows.map((r) => String(r.month).slice(0, 7)), ...axisStyle(theme) },
+        yAxis: { type: 'value', axisLabel: { color: theme.text, formatter: opts.axisFormatter }, splitLine: axisStyle(theme).splitLine },
+        series: [{
+          type: 'line', smooth: true, showSymbol: false,
+          lineStyle: { color: theme.cat[colorIndex], width: 2 },
+          itemStyle: { color: theme.cat[colorIndex] },
+          areaStyle: { color: theme.cat[colorIndex], opacity: 0.08 },
+          data: rows.map((r) => num(r[alias])),
+        }],
+      });
+    }
+
+    function renderDecouplingTrend (theme) {
+      const rows = decouplingTrend.result.rows;
+      charts['decoupling-trend'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        grid: { left: 8, right: 8, top: 16, bottom: 8, containLabel: true },
+        tooltip: { formatter: (p) => `${p.data[2]}<br>${p.data[0]} · ${fmt1.format(p.data[1])}%` },
+        xAxis: { type: 'time', ...axisStyle(theme) },
+        yAxis: { type: 'value', axisLabel: { color: theme.text, formatter: (v) => fmt0.format(v) + '%' }, splitLine: axisStyle(theme).splitLine },
+        series: [{
+          type: 'scatter', symbolSize: 9,
+          itemStyle: { color: theme.cat[0], opacity: 0.75 },
+          data: rows.map((r) => [day(r.start), num(r.decoupling_pct), r.activity_name]),
+          markLine: { silent: true, symbol: 'none',
+            lineStyle: { color: theme.cat[3], type: 'dashed', width: 1.5 },
+            label: { color: theme.text, formatter: (p) => 'avg ' + fmt1.format(Number(p.value)) + '%' },
+            data: [{ type: 'average', name: 'avg' }] },
+        }],
+      });
+    }
+
+    function renderPaceByTemp (theme) {
+      const rows = paceByTemp.result.rows;
+      charts['pace-by-temp'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        grid: { left: 8, right: 8, top: 16, bottom: 8, containLabel: true },
+        tooltip: { formatter: (p) => `${p.name} · ${paceFmt(p.value)} /km · ${fmt0.format(p.data.runs || 0)} runs` },
+        xAxis: { type: 'category', data: rows.map((r) => r.bucket), ...axisStyle(theme) },
+        yAxis: { type: 'value', axisLabel: { color: theme.text, formatter: paceFmt }, splitLine: axisStyle(theme).splitLine },
+        series: [{
+          type: 'bar', barMaxWidth: 44,
+          itemStyle: { color: theme.cat[1], borderRadius: [3, 3, 0, 0] },
+          data: rows.map((r) => ({ value: num(r.pace_min_km), runs: num(r.runs) })),
+        }],
+      });
+    }
+
+    function render () {
+      renderStatus(kpiFitness, 'kpi-ctl-status', 'No weekly data');
+      renderStatus(kpiFitness, 'kpi-atl-status', 'No weekly data');
+      renderStatus(kpiFitness, 'kpi-tsb-status', 'No weekly data');
+      renderStatus(kpiWeekDist, 'kpi-week-status', 'No runs this window');
+      renderStatus(kpi90d, 'kpi-90d-status', 'No activities');
+      renderStatus(kpiDecoupling, 'kpi-dec-status', 'No long runs');
+      renderStatus(fitnessTrend, 'fitness-trend-status', 'No weekly data in this range');
+      renderStatus(loadRamp, 'load-ramp-status', 'No weekly data in this range');
+      renderStatus(weeklyRunDist, 'weekly-run-dist-status', 'No runs in this range');
+      renderStatus(dailyRuns, 'daily-heatmap-status', 'No runs in this range');
+      renderStatus(sportMix, 'sport-mix-status', 'No activities in this range');
+      renderStatus(weeklyCategory, 'weekly-category-status', 'No activities in this range');
+      renderStatus(monthlyPace, 'monthly-pace-status', 'No runs in this range');
+      renderStatus(monthlyCadence, 'monthly-cadence-status', 'No runs with cadence');
+      renderStatus(monthlyEfficiency, 'monthly-efficiency-status', 'No runs with heart rate');
+      renderStatus(decouplingTrend, 'decoupling-trend-status', 'No long runs in this range');
+      renderStatus(paceByTemp, 'pace-by-temp-status', 'No runs with recorded temperature');
+
+      [kpiFitness, kpiWeekDist, kpi90d, kpiDecoupling, fitnessTrend, loadRamp, weeklyRunDist,
+       dailyRuns, sportMix, weeklyCategory, monthlyPace, monthlyCadence, monthlyEfficiency,
+       decouplingTrend, paceByTemp].forEach(logFirstResult);
+
+      const theme = chartTheme();
+      kpis(theme);
+      if (fitnessTrend.result) renderFitnessTrend(theme);
+      if (loadRamp.result) renderLoadRamp(theme);
+      if (weeklyRunDist.result) renderWeeklyRunDist(theme);
+      if (dailyRuns.result && dailyRuns.result.rows.length) renderDailyHeatmap(theme);
+      if (sportMix.result) renderSportMix(theme);
+      if (weeklyCategory.result) renderWeeklyCategory(theme);
+      if (monthlyPace.result) renderMonthlyLine(monthlyPace, 'monthly-pace', 'pace_min_km', 2,
+        { tooltipFormatter: (v) => paceFmt(v) + ' /km', axisFormatter: paceFmt }, theme);
+      if (monthlyCadence.result) renderMonthlyLine(monthlyCadence, 'monthly-cadence', 'cadence_spm', 5,
+        { tooltipFormatter: (v) => fmt0.format(v) + ' spm', axisFormatter: (v) => fmt0.format(v) }, theme);
+      if (monthlyEfficiency.result) renderMonthlyLine(monthlyEfficiency, 'monthly-efficiency', 'aerobic_efficiency', 4,
+        { tooltipFormatter: (v) => fmt2.format(v), axisFormatter: (v) => fmt2.format(v) }, theme);
+      if (decouplingTrend.result) renderDecouplingTrend(theme);
+      if (paceByTemp.result) renderPaceByTemp(theme);
+    }
+
+    app.subscribe(render);
+    darkQuery.addEventListener('change', () => { applyTheme(); render(); });
+
+    // Cross-filter: click a sport-mix slice (toggles; selection filters the mapped queries).
+    charts['sport-mix'].on('click', (params) => {
+      const row = sportMix.result.rows[params.dataIndex];
+      const selected = sportMix.selectedRows;
+      sportMix.select(selected.includes(row)
+        ? selected.filter((picked) => picked !== row)
+        : [...selected, row]);
+      app.execute();
+    });
+
+    // Sport multi-select combobox. The combobox element is its own instance: refresh(), clear(), setValue().
+    // Basecoat's deferred script initializes it on DOMContentLoaded, so wait for that before refresh().
+    const sportBox = document.getElementById('sport-combobox');
+    const sportList = document.getElementById('sport-listbox');
+    const domReady = document.readyState === 'loading'
+      ? new Promise((resolve) => document.addEventListener('DOMContentLoaded', resolve))
+      : Promise.resolve();
+    Promise.all([sport.loadOptions(), domReady]).then(([options]) => {
+      sportList.replaceChildren(...options.map((value) => {
+        const option = document.createElement('div');
+        option.setAttribute('role', 'option');
+        option.dataset.value = String(value);
+        option.textContent = String(value);
+        return option;
+      }));
+      sportBox.refresh();
+    }).catch((err) => console.error('Could not load sport options', err));
+    sportBox.addEventListener('change', (event) => {
+      const values = Array.isArray(event.detail.value) ? event.detail.value : [];
+      sport.setCondition({ operator: 'is', values });
+      app.execute();
+    });
+
+    // Date range: two date inputs plus presets. Empty means no filter.
+    const fromInput = document.getElementById('date-from');
+    const toInput = document.getElementById('date-to');
+    function applyDateRange () {
+      if (fromInput.value && toInput.value) {
+        dates.setCondition({ operator: 'between', values: [fromInput.value, toInput.value] });
+      } else {
+        dates.setCondition({ operator: 'is', values: [] });
+      }
+      app.execute();
+    }
+    const isoDay = (date) => date.toISOString().slice(0, 10);
+    fromInput.addEventListener('change', applyDateRange);
+    toInput.addEventListener('change', applyDateRange);
+    document.querySelectorAll('[data-days]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const today = new Date();
+        const kind = button.dataset.days;
+        if (kind === 'all') {
+          fromInput.value = '';
+          toInput.value = '';
+        } else {
+          const from = kind === 'ytd'
+            ? new Date(Date.UTC(today.getUTCFullYear(), 0, 1))
+            : new Date(today.getTime() - Number(kind) * 86400000);
+          fromInput.value = isoDay(from);
+          toInput.value = isoDay(today);
+        }
+        applyDateRange();
+      });
+    });
+
+    document.getElementById('clear-selection').addEventListener('click', () => {
+      app.clearSelection();
+      app.execute();
+    });
+
+    window.addEventListener('resize', () => {
+      Object.values(charts).forEach((chart) => chart.resize());
+    });
+
+    app.execute();
+  </script>
+</body>
+</html>

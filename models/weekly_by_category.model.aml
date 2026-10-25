@@ -1,0 +1,55 @@
+Model weekly_by_category {
+  type: 'table'
+  label: 'Weekly By Category'
+  description: 'Weekly time/distance/load split by sport category (run, ride, strength, ...).'
+  data_source_name: 'running'
+  table_name: 'weekly_by_category'
+
+  dimension week_start {
+    label: 'Week'
+    type: 'date'
+    definition: @sql {{ #SOURCE.week_start }};;
+  }
+  dimension category {
+    label: 'Category'
+    type: 'text'
+    definition: @sql {{ #SOURCE.category }};;
+  }
+  dimension time_s {
+    label: 'Time'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.time_s }};;
+  }
+  dimension distance_m {
+    label: 'Distance'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.distance_m }};;
+  }
+  dimension training_load {
+    label: 'Training Load'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.training_load }};;
+  }
+
+  measure cat_time_h {
+    label: 'Category Hours'
+    type: 'number'
+    definition: @aql sum(weekly_by_category.time_s) / 3600.0 ;;
+    format: '#,###0.0 "h"'
+  }
+  measure cat_distance_km {
+    label: 'Category Distance'
+    type: 'number'
+    definition: @aql sum(weekly_by_category.distance_m) / 1000.0 ;;
+    format: '#,###0.0 "km"'
+  }
+  measure cat_load {
+    label: 'Category Load'
+    type: 'number'
+    definition: @aql sum(weekly_by_category.training_load) ;;
+    format: '#,###0'
+  }
+}

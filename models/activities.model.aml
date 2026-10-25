@@ -1,0 +1,189 @@
+Model activities {
+  type: 'table'
+  label: 'Activities'
+  description: 'One row per activity from intervals.icu (all sports, v2-ready).'
+  data_source_name: 'running'
+  table_name: 'activities'
+
+  dimension id {
+    label: 'Activity Id'
+    type: 'number'
+    primary_key: true
+    definition: @sql {{ #SOURCE.id }};;
+  }
+  dimension name {
+    label: 'Activity Name'
+    type: 'text'
+    definition: @sql {{ #SOURCE.name }};;
+  }
+  dimension start_local {
+    label: 'Start Time'
+    type: 'datetime'
+    definition: @sql {{ #SOURCE.start_local }};;
+  }
+  dimension date {
+    label: 'Date'
+    type: 'date'
+    definition: @sql {{ #SOURCE.start_local }}::date;;
+  }
+  dimension week_start {
+    label: 'Week'
+    type: 'date'
+    definition: @sql date_trunc('week', {{ #SOURCE.start_local }})::date;;
+  }
+  dimension month {
+    label: 'Month'
+    type: 'date'
+    definition: @sql date_trunc('month', {{ #SOURCE.start_local }})::date;;
+  }
+  dimension year {
+    label: 'Year'
+    type: 'number'
+    definition: @sql year({{ #SOURCE.start_local }});;
+  }
+  dimension sport_group {
+    label: 'Sport Group'
+    type: 'text'
+    description: 'run / ride / strength / walk / yoga / row / other'
+    definition: @sql {{ #SOURCE.sport_group }};;
+  }
+  dimension type {
+    label: 'Activity Type'
+    type: 'text'
+    definition: @sql {{ #SOURCE.type }};;
+  }
+  dimension device_name {
+    label: 'Device'
+    type: 'text'
+    definition: @sql {{ #SOURCE.device_name }};;
+  }
+  dimension is_race {
+    label: 'Is Race'
+    type: 'truefalse'
+    definition: @sql {{ #SOURCE.is_race }};;
+  }
+  dimension is_commute {
+    label: 'Is Commute'
+    type: 'truefalse'
+    definition: @sql {{ #SOURCE.is_commute }};;
+  }
+  dimension trainer {
+    label: 'Indoor'
+    type: 'truefalse'
+    definition: @sql {{ #SOURCE.trainer }};;
+  }
+  dimension avg_temp_c {
+    label: 'Avg Temperature'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.avg_temp_c }};;
+  }
+  dimension avg_hr {
+    label: 'Avg Heart Rate'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.avg_hr }};;
+  }
+  dimension max_hr {
+    label: 'Max Heart Rate'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.max_hr }};;
+  }
+  dimension avg_cadence {
+    label: 'Avg Cadence'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.avg_cadence }};;
+  }
+  dimension avg_speed_ms {
+    label: 'Avg Speed'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.avg_speed_ms }};;
+  }
+  dimension moving_time_s {
+    label: 'Moving Time'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.moving_time_s }};;
+  }
+  dimension distance_m {
+    label: 'Distance'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.distance_m }};;
+  }
+  dimension elev_gain_m {
+    label: 'Elevation Gain'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.elev_gain_m }};;
+  }
+  dimension elev_loss_m {
+    label: 'Elevation Loss'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.elev_loss_m }};;
+  }
+  dimension calories {
+    label: 'Calories'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.calories }};;
+  }
+  dimension training_load {
+    label: 'Training Load'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.training_load }};;
+  }
+  dimension weighted_avg_watts {
+    label: 'Weighted Avg Watts'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.weighted_avg_watts }};;
+  }
+  dimension threshold_pace_ms {
+    label: 'Threshold Pace'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.threshold_pace_ms }};;
+  }
+
+  measure activity_count {
+    label: 'Activities'
+    type: 'number'
+    definition: @aql count(activities.id) ;;
+  }
+  measure total_time_s {
+    label: 'Total Moving Time'
+    type: 'number'
+    hidden: true
+    definition: @aql sum(activities.moving_time_s) ;;
+  }
+  measure total_distance_m {
+    label: 'Total Distance'
+    type: 'number'
+    hidden: true
+    definition: @aql sum(activities.distance_m) ;;
+  }
+  measure total_elev_gain_m {
+    label: 'Total Elevation Gain'
+    type: 'number'
+    definition: @aql sum(activities.elev_gain_m) ;;
+    format: '#,###0 "m"'
+  }
+  measure total_load {
+    label: 'Total Training Load'
+    type: 'number'
+    definition: @aql sum(activities.training_load) ;;
+    format: '#,###0'
+  }
+  measure total_calories {
+    label: 'Total Calories'
+    type: 'number'
+    definition: @aql sum(activities.calories) ;;
+    format: '#,###0'
+  }
+}

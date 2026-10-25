@@ -1,0 +1,6 @@
+# anfra: data source credentials
+.anfra/data_sources.yml
+.env
+data/running.duckdb
+__pycache__/
+*.pyc

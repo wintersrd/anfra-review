@@ -1,0 +1,167 @@
+Dataset running_analytics {
+  label: 'Running & Training Analytics'
+  description: 'Training load (CTL/ATL/TSB, ramp rate), volume and consistency, speed and progression, HR decoupling on long runs, environment effects, and cross-training mix. Grain: activities = one row per activity (all sports); weekly_summary = one row per week with intervals.icu fitness/fatigue/form; weekly_by_category = weekly volume per sport; decoupling_calc = computed HR decoupling for long runs.'
+  data_source_name: 'running'
+
+  models: [
+    activities,
+    weekly_summary,
+    weekly_by_category,
+    decoupling_calc,
+  ]
+  relationships: [
+    relationship(decoupling_calc.activity_id > activities.id, true),
+  ]
+
+  metric total_activities {
+    label: 'Total Activities'
+    type: 'number'
+    definition: @aql activities.activity_count ;;
+  }
+  metric total_time_h {
+    label: 'Total Hours'
+    type: 'number'
+    definition: @aql activities.total_time_s / 3600.0 ;;
+    format: '#,###0.0 "h"'
+  }
+  metric total_distance_km {
+    label: 'Total Distance'
+    type: 'number'
+    definition: @aql activities.total_distance_m / 1000.0 ;;
+    format: '#,###0 "km"'
+  }
+  metric total_elev_gain_m {
+    label: 'Total Elevation Gain'
+    type: 'number'
+    definition: @aql activities.total_elev_gain_m ;;
+    format: '#,###0 "m"'
+  }
+  metric total_load {
+    label: 'Total Training Load'
+    type: 'number'
+    definition: @aql activities.total_load ;;
+    format: '#,###0'
+  }
+  metric avg_pace_min_km {
+    label: 'Avg Pace'
+    type: 'number'
+    description: 'Overall pace in min/km (moving time over distance).'
+    definition: @aql activities.total_time_s / 60.0 / (activities.total_distance_m / 1000.0) ;;
+    format: '#,###0.00 "min/km"'
+  }
+  metric avg_speed_kmh {
+    label: 'Avg Speed'
+    type: 'number'
+    definition: @aql activities.total_distance_m / 1000.0 / (activities.total_time_s / 3600.0) ;;
+    format: '#,###0.0 "km/h"'
+  }
+  metric weighted_avg_hr {
+    label: 'Avg Heart Rate'
+    type: 'number'
+    description: 'Moving-time-weighted average heart rate.'
+    definition: @aql (activities | sum(activities.avg_hr * activities.moving_time_s)) / activities.total_time_s ;;
+    format: '#,##0 "bpm"'
+  }
+  metric avg_cadence {
+    label: 'Avg Cadence'
+    type: 'number'
+    definition: @aql (activities | sum(activities.avg_cadence * activities.moving_time_s)) / activities.total_time_s ;;
+    format: '#,##0 "spm"'
+  }
+
+  metric run_activities {
+    label: 'Runs'
+    type: 'number'
+    definition: @aql activities.activity_count | where(activities.sport_group in ['run']) ;;
+  }
+  metric run_distance_km {
+    label: 'Run Distance'
+    type: 'number'
+    definition: @aql (activities.total_distance_m / 1000.0) | where(activities.sport_group in ['run']) ;;
+    format: '#,###0 "km"'
+  }
+  metric run_time_h {
+    label: 'Run Hours'
+    type: 'number'
+    definition: @aql (activities.total_time_s / 3600.0) | where(activities.sport_group in ['run']) ;;
+    format: '#,###0.0 "h"'
+  }
+  metric run_elev_gain_m {
+    label: 'Run Elevation Gain'
+    type: 'number'
+    definition: @aql activities.total_elev_gain_m | where(activities.sport_group in ['run']) ;;
+    format: '#,###0 "m"'
+  }
+  metric run_load {
+    label: 'Run Load'
+    type: 'number'
+    definition: @aql activities.total_load | where(activities.sport_group in ['run']) ;;
+    format: '#,###0'
+  }
+  metric run_pace_min_km {
+    label: 'Run Pace'
+    type: 'number'
+    description: 'Pace in min/km across runs only.'
+    definition: @aql run_time_h * 3600.0 / 60.0 / run_distance_km ;;
+    format: '#,###0.00 "min/km"'
+  }
+  metric strength_time_h {
+    label: 'Strength Hours'
+    type: 'number'
+    definition: @aql (activities.total_time_s / 3600.0) | where(activities.sport_group in ['strength']) ;;
+    format: '#,###0.0 "h"'
+  }
+  metric ride_distance_km {
+    label: 'Ride Distance'
+    type: 'number'
+    definition: @aql (activities.total_distance_m / 1000.0) | where(activities.sport_group in ['ride']) ;;
+    format: '#,###0 "km"'
+  }
+
+  metric run_avg_cadence {
+    label: 'Run Avg Cadence'
+    type: 'number'
+    description: 'Moving-time-weighted average cadence across runs.'
+    definition: @aql ((activities | sum(activities.avg_cadence * activities.moving_time_s)) / activities.total_time_s) | where(activities.sport_group in ['run']) ;;
+    format: '#,##0 "spm"'
+  }
+  metric run_aerobic_efficiency {
+    label: 'Run Aerobic Efficiency'
+    type: 'number'
+    description: 'Time-weighted average speed (m/s) per average heart rate (bpm) across runs. Higher is more efficient.'
+    definition: @aql (activities | sum(activities.avg_speed_ms * activities.moving_time_s)) / (activities | sum(activities.avg_hr * activities.moving_time_s)) | where(activities.sport_group in ['run']) ;;
+    format: '#,##0.00'
+  }
+
+  view {
+    group load {
+      metric total_load
+      metric run_load
+    }
+    group volume {
+      metric total_distance_km
+      metric total_time_h
+      metric total_elev_gain_m
+      metric run_distance_km
+      metric run_time_h
+      metric run_elev_gain_m
+    }
+    group speed {
+      metric avg_pace_min_km
+      metric run_pace_min_km
+      metric avg_speed_kmh
+      metric run_aerobic_efficiency
+    }
+    group physiology {
+      metric weighted_avg_hr
+      metric avg_cadence
+      metric run_avg_cadence
+    }
+    group mix {
+      metric total_activities
+      metric run_activities
+      metric strength_time_h
+      metric ride_distance_km
+    }
+  }
+}

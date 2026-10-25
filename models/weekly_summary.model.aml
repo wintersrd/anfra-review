@@ -1,0 +1,139 @@
+Model weekly_summary {
+  type: 'table'
+  label: 'Weekly Summary'
+  description: 'One row per ISO week: intervals.icu fitness/fatigue/form, volume and load (all sports).'
+  data_source_name: 'running'
+  table_name: 'weekly_summary'
+
+  dimension week_start {
+    label: 'Week'
+    type: 'date'
+    primary_key: true
+    definition: @sql {{ #SOURCE.week_start }};;
+  }
+  dimension year {
+    label: 'Year'
+    type: 'number'
+    definition: @sql year({{ #SOURCE.week_start }});;
+  }
+  dimension activities {
+    label: 'Activities'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.activities }};;
+  }
+  dimension time_s {
+    label: 'Time'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.time_s }};;
+  }
+  dimension distance_m {
+    label: 'Distance'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.distance_m }};;
+  }
+  dimension elev_gain_m {
+    label: 'Elevation Gain'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.elev_gain_m }};;
+  }
+  dimension training_load {
+    label: 'Training Load'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.training_load }};;
+  }
+  dimension fitness {
+    label: 'Fitness (CTL)'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.fitness }};;
+  }
+  dimension fatigue {
+    label: 'Fatigue (ATL)'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.fatigue }};;
+  }
+  dimension form {
+    label: 'Form (TSB)'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.form }};;
+  }
+  dimension ramp_rate {
+    label: 'Ramp Rate'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.ramp_rate }};;
+  }
+  dimension avg_weight_kg {
+    label: 'Avg Weight'
+    type: 'number'
+    hidden: true
+    definition: @sql {{ #SOURCE.avg_weight_kg }};;
+  }
+
+  measure weekly_time_h {
+    label: 'Weekly Hours'
+    type: 'number'
+    definition: @aql sum(weekly_summary.time_s) / 3600.0 ;;
+    format: '#,###0.0 "h"'
+  }
+  measure weekly_distance_km {
+    label: 'Weekly Distance'
+    type: 'number'
+    definition: @aql sum(weekly_summary.distance_m) / 1000.0 ;;
+    format: '#,###0.0 "km"'
+  }
+  measure weekly_elev_gain_m {
+    label: 'Weekly Elevation Gain'
+    type: 'number'
+    definition: @aql sum(weekly_summary.elev_gain_m) ;;
+    format: '#,###0 "m"'
+  }
+  measure weekly_load {
+    label: 'Weekly Load'
+    type: 'number'
+    definition: @aql sum(weekly_summary.training_load) ;;
+    format: '#,###0'
+  }
+  measure weekly_activities {
+    label: 'Weekly Activities'
+    type: 'number'
+    definition: @aql sum(weekly_summary.activities) ;;
+  }
+  measure ctl {
+    label: 'Fitness (CTL)'
+    type: 'number'
+    definition: @aql avg(weekly_summary.fitness) ;;
+    format: '#,###0'
+  }
+  measure atl {
+    label: 'Fatigue (ATL)'
+    type: 'number'
+    definition: @aql avg(weekly_summary.fatigue) ;;
+    format: '#,###0'
+  }
+  measure tsb {
+    label: 'Form (TSB)'
+    type: 'number'
+    definition: @aql avg(weekly_summary.form) ;;
+    format: '#,###0'
+  }
+  measure weekly_ramp_rate {
+    label: 'Ramp Rate'
+    type: 'number'
+    definition: @aql avg(weekly_summary.ramp_rate) ;;
+    format: '#,###0.0'
+  }
+  measure avg_weight {
+    label: 'Avg Weight'
+    type: 'number'
+    definition: @aql avg(weekly_summary.avg_weight_kg) ;;
+    format: '#,###0.0 "kg"'
+  }
+}
