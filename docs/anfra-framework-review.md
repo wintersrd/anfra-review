@@ -5,6 +5,13 @@ analytics dashboard (`apps/running.html`, 21 queries, 16 ECharts visualizations)
 ~14 years of intervals.icu data in a DuckDB file. ~30 hours of work including data
 engineering, semantic modeling, app building, and debugging.
 
+This review covers **two phases**. Phase 1 is the native anfra experience: semantic layer +
+single-file HTML app (sections above). Phase 2 replaced anfra's presentation layer with
+Streamlit, consuming the same semantic layer through anfra's MCP server via a purpose-built
+Python client (`anfra_client/`, all 22 dashboard queries ported, 211 tests) — see
+"Phase 2" and "anfra vs Streamlit" below. Phase 2 is also where the recommendation for
+the Holistics team comes from.
+
 > anfra (github.com/holistics/anfra): local-first, git-based semantic layer + "data app"
 > framework. CLI (`anfra init/validate/serve/query/ingest/lineage`), AML models/datasets
 > with an AQL metric language, and single-file HTML apps that declare queries and controls
@@ -116,6 +123,128 @@ repo/
 | 8 | Wrong numbers in charts | SDK delivers numbers as strings | `num()` coercion helper at every data boundary; verified with an SSR harness that also converts rows |
 | 9 | AML/AQL syntax guessing fails | Docs-thin surface; grammar is opinionated | Read the bundled skills (`setup-repo`, `aml`, `write-aql`, `build-data-app`); copy their examples as the base |
 | 10 | Browser-only debugging is slow | Errors surface as a generic per-query error state | Headless harness: extract `createQuery` AQL → run via `anfra query` → feed rows to ECharts SSR with DOM stubs → reproduce real crashes in CI-like fashion |
+| 11 | MCP integration blind: `input.aql` rejected, field unknown | The MCP tool schemas are undocumented; request fields discovered from error messages (`query` is a top-level argument, not inside `input`) | Probe live server, record real request/response fixtures, pin them in contract tests (`AnfraContractError` tripwires) |
+| 12 | Multi-element AQL blocks fail with bare `Syntax error.` | AQL blocks with >1 element require commas between element lines; single-element blocks don't — every hand probe was single-element | Renderer emits commas between all but the last element; equivalence tests caught the miss |
+| 13 | `ModuleNotFoundError: anfra_client` in deployed Streamlit app | Streamlit puts only the app script's own folder on `sys.path`, not the launch CWD | Location-independent bootstrap (`Path(__file__).parents[1]` → `sys.path.insert`) before the import |
+| 14 | App "worked" in verification but broke for the user | `curl 200` proves the HTTP shell, not the script — Streamlit executes the app only when a browser session connects | Live `streamlit.testing.v1.AppTest` end-to-end test (runs the full script incl. all queries) as the real smoke gate |
+
+---
+
+## Phase 2 — anfra as a backend: the MCP → Streamlit blend
+
+Phase 1's conclusion was that anfra's value concentrates in the data layer and its costs
+concentrate in the presentation layer. Phase 2 tested that hypothesis directly: keep the
+semantic layer as the single source of truth, replace the HTML app with Streamlit, and
+connect them through anfra's MCP server.
+
+### What the MCP server actually offers (discovered, not documented)
+
+`anfra serve` exposes an MCP endpoint (`:7878/mcp`, streamable-HTTP JSON-RPC). The public
+docs don't cover it; everything below was probed against anfra 0.13.3:
+
+- **Tools:** `core.query` (AQL → rows + compiled SQL + typed columns), `core.query.compile`,
+  `core.lineage`, `core.search`, `core.show`, `core.status`, `core.validate`, `core.ingest`.
+- **Request:** top-level `query` (AQL text) + `dataset`, with `input.filters` (a small
+  operator vocabulary — `is`, `is_not`, `between`, `last`+unit, `greater_than/less_than`,
+  `contains/starts_with/ends_with`, `before/after`), `input.conditions` (free-form AQL),
+  `input.sorts`, `page`/`page_size`, `timezone`, and `lang: sql` + `data_source` for raw SQL.
+- **Response envelope:** `{sql, aql, columns[{name, fieldName, db_type, isMeasure, ...}],
+  result{fields, records}, has_more, timings}` — machine-readable, ~200ms/query server-side.
+- **Errors** arrive as HTTP 200 with structured JSON: AQL compile failures carry
+  `diagnostics` (line/column); input validation carries `violations` (field paths).
+
+This surface is the real product boundary. It is what makes "anfra as infrastructure,
+N consumers on top" tractable — and it deserves first-class documentation.
+
+### The client library (`anfra_client/`, stdlib-only Python)
+
+Built as a domain-agnostic SDK, roughly in order of importance:
+
+- **Layering that anticipates other backends:** `Transport` (HTTP) / envelope parsing /
+  AQL rendering are separate concerns; a Holistics-cloud adapter would replace the first
+  two without touching query rendering.
+- **Typed error hierarchy** with actionable hints: `AnfraConnectionError` ("is anfra serve
+  running?"), `AnfraCompileError` (formatted diagnostics), `AnfraValidationError`,
+  `AnfraSessionError`, and `AnfraContractError` — a deliberate tripwire that fails loudly
+  when the server envelope drifts from recorded fixtures.
+- **Operational hygiene:** initialize-once session handshake with automatic re-init on
+  stale sessions, exponential-backoff retries on transport errors and 5xx (never on query
+  errors), ID-lenient SSE parsing.
+- **A Pythonic query surface** so consumers never hand-format AQL:
+  `query(dimensions=..., measures=..., custom_metrics={...}, custom_dimensions={...},
+  filters=[typed_filters_and/or_raw_strings], order_by=['week_start asc'], timezone=...)`.
+  Dimensions/measures accept strings (alias derived from last path segment), `(alias, ref)`
+  tuples, lists, or dicts; typed `Filter` builders map to `input.filters`, raw strings map
+  to `input.conditions`. `aql()` remains the escape hatch.
+- **Test doubles:** a `MockTransport` with scripted responses over **real recorded server
+  bodies** (SSE fixtures), enabling the entire unit suite to run offline.
+
+### Porting the app: 22 queries, one oracle, zero rewrites of truth
+
+All dashboard queries were ported from hand-written SQL (`queries.py`) to the AQL layer
+(`queries_aql.py`) — same function signatures, same output columns. `queries.py` was kept
+as a **SQL oracle**: a 24-test equivalence suite runs both against the same DuckDB and
+asserts agreement within tolerances. That suite caught real semantic gaps the compile step
+couldn't: a missing runs-only condition on 12 run-only queries, model-measure vs raw-dimension
+confusions, and a pace divergence from using a server-rounded `avg_speed_ms` instead of raw
+distance/time (1.2%). One divergence is pinned and documented rather than fixed: the AQL
+"this week" KPI reads the last *complete* week because `week_start` is a stored column the
+timezone parameter cannot re-truncate — a real grain-semantics footgun worth flagging upstream.
+
+### What we could verify about the query engine (capability matrix)
+
+A live test suite pins the engine's actual behavior: the accepted operator set (and that
+`gt`/`in`/regex are rejected), case-insensitive text operators, HAVING semantics
+(`aggregation` on dataset fields works; on metrics it is rejected), row-level filters being
+WHERE not HAVING, paging with `has_more`, three-dimension explores, cross-model joins via
+dataset relationships, empty results preserving column contracts, timezone-driven bucket
+alignment, custom `case()`/`floor()` dimensions, and arithmetic custom metrics. This reads
+like a de-facto spec of the query service — the kind of thing that belongs in official docs.
+
+### App-level testing that the native stack couldn't give us
+
+- **Record/replay:** one recording run captures all 22 queries (+filter variants) as
+  fixtures; the app smoke test then replays them through the mock transport — fully
+  offline, committed to the repo, regression-proof against both client and envelope drift.
+- **Streamlit AppTest:** executes the *entire* app script (all queries, widgets, layout)
+  against the live server and asserts zero exceptions + 4 KPI metrics. This is the
+  end-to-end check that `curl 200` cannot provide — and indeed the HTTP shell returned 200
+  while the app script was failing on a `sys.path` issue only a real session would hit.
+
+### Effort
+
+Roughly one-third of the original app-build effort: ~4 working sessions for the client
+library + docs + port + capability/edge-case suites, versus ~30 hours for data engineering +
+semantic modeling + the native HTML app. And the queries themselves ported 1:1 — the AQL
+investment was fully preserved, which is precisely the argument for putting truth in the
+semantic layer instead of either frontend.
+
+---
+
+## anfra vs Streamlit (this project, head-to-head)
+
+Same dataset, same semantic model, same 16 charts, same controls — built twice.
+
+| Dimension | anfra native app | Streamlit + anfra_client | Edge |
+|---|---|---|---|
+| Truth definitions | AML/AQL — one place, reused | Same AML/AQL via MCP | **anfra** (it's the data layer) |
+| Interactivity | `mapCrossFilter` declarative plumbing; donut click → 8 charts | Plotly native selection events → session state | **Streamlit** (less code, fewer sharp edges) |
+| Theming | Fight the sandboxed iframe; in-app toggle + MutationObserver | One-way CSS + theme dicts; toggles just work | **Streamlit** |
+| Charts | Any JS library, total freedom, zero included | Plotly's catalog + ecosystem | Tie — anfra has higher ceiling, Streamlit higher floor |
+| Failure isolation | One bad chart config aborted the whole render pass ("Couldn't load this chart" everywhere) | Per-chart try/except; one failure degrades one widget | **Streamlit** |
+| App-level testing | None native; custom Node SSR harness with DOM stubs | `AppTest` executes the real script; record/replay for offline CI | **Streamlit** |
+| Query testing | `anfra query` CLI — excellent, first-class | Same CLI, plus typed client + equivalence suite | Tie (both good; anfra provides the substrate) |
+| Boilerplate | ~60 lines before chart #1 (coercion, render states, palettes) | `apply_layout` + `queue/flush_row` helpers, ~half the ceremony | **Streamlit** |
+| Codebase shape | 2.6k-line monolithic HTML, no componentization | 3 focused Python modules (~1.4k lines total) | **Streamlit** |
+| Ops footprint | One binary (`anfra serve`), no Python env | `anfra serve` **plus** Python env (uv, streamlit, plotly) | **anfra** |
+| Deployment story | Local-only, no auth | Local-only, no auth (OSS Streamlit) | Tie — both need the same missing hosting story |
+| Failure modes | Undocumented envelopes, iframe sandbox, engine format lag | Streamlit quirks (sys.path, widget/state warnings) — shallow and well-documented | **Streamlit** |
+
+The pattern is consistent: **anfra wins wherever the semantic layer reaches, and loses
+wherever the app runtime reaches.** Streamlit's failures were shallow (a `sys.path` quirk,
+a deprecation warning); anfra's failures were structural (sandbox boundary, render-pass
+aborts, embedded-engine drift). Neither has a real deployment/auth story — that gap sits
+above both, and any "publish near the BI/DWH" recommendation has to solve it separately.
 
 ---
 
@@ -143,6 +272,21 @@ one URL, friendly filters, cross-filtering) and request metric changes as one-li
 edits. If holistics ships a visual app builder or template gallery, this audience opens
 up; today the framework is a developer tool that produces excellent apps *for*
 non-developers.
+
+### 3. Teams wanting BI-governed truth in custom apps (the blend — our recommendation)
+
+**The strongest pattern we found, and the one we'd recommend to Holistics.** Keep truth
+definitions in the BI environment (AML datasets/metrics defined once), expose them through
+MCP, and build consumer-facing apps in a real data-app framework — Streamlit in our case —
+published close to the BI/warehouse. Phase 2 validated every link: anfra's MCP carried all
+22 production queries at ~200ms with a machine-readable envelope; a ~500-line stdlib-only
+Python client absorbed the entire protocol; the app layer shrank to three focused modules;
+and an equivalence suite proved the AQL layer reproduces the SQL oracle within documented
+tolerances. What Holistics would need to supply for this to be a first-class story:
+documented MCP tool schemas, a stable error-envelope contract, SQL-returning compile,
+paging/timezone semantics, and auth for hosted deployments. The pitch writes itself:
+**the semantic layer is the product; apps are commodities.** anfra's own HTML runtime is
+the weakest expression of that idea — the MCP surface is the strongest.
 
 ---
 
