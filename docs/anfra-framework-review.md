@@ -248,6 +248,48 @@ above both, and any "publish near the BI/DWH" recommendation has to solve it sep
 
 ---
 
+## Addendum — the `build-data-app` skill, installed late and evaluated in retrospect
+
+The Holistics team's first piece of feedback on this review was: *"make sure you install
+and use build-data-app skill"*. Fair — `anfra skills install` failed at setup (it shells
+out to `claude plugin marketplace add holistics/anfra-skills --scope user`, and this
+machine's claude CLI rejects `--scope`; the marketplace add works **without** the flag).
+We built the app from the skill's reference files instead of the installed skill, and
+partially at that. This addendum scores, honestly, which of the issues above the skill
+would have prevented had we read and followed it in full.
+
+**What the skill covers well** (and we learned the hard way): the sandbox is documented
+explicitly — `localStorage`/`sessionStorage` throw, *including Basecoat's theme switcher*,
+"follow `prefers-color-scheme` instead" (issue #3 cost us a full round the skill hands
+back); the four render states, first-success logging of `columns`/`rows[0]`/`executedAql`
+(#8); the Inspect panel's Structure/Data tabs and `executedAql` comparison as the debugging
+workflow (#10, partially); the CDN allowlist with SRI-hash requirements and the
+`apps.allow_origins` escape hatch; the "run every query through `anfra query` before it
+goes in the app" discipline; and — the one that stings — *"If you could not check the
+interface, say so rather than claiming it works"* (#14: our round-9 `curl 200` claim is
+exactly the failure this sentence exists to prevent).
+
+**What it does not cover:** the embedded-engine storage-format lag (#1), the server's
+DuckDB file lock (#4), the echarts 6.1.0 `visualMap` landmine (#2), the multi-element AQL
+comma rule (#12), and everything on the MCP/Streamlit side (#11, #13) — the skill never
+mentions the MCP server at all, which is itself telling given where we landed
+architecturally.
+
+**Scorecard over the 14 logged issues: fully mitigated 2 (#3, #14), partially 5 (#5, #6,
+#8, #9, #10 — the AML ones via the `aml` skill family, the rest via prescribed workflows),
+unmitigated 7 (#1, #2, #4, #7, #11, #12, #13).** The weaknesses section also shifts: the
+"thin docs" complaint is really a "docs live in skills" complaint — the skills are the
+documentation, they're good, and the install command is broken. The monolithic single-file
+app (#7 in weaknesses) is confirmed as *by design* — the skill mandates it ("never split an
+app"). Net effect on the project: probably one avoided debugging round (theming), less
+boilerplate invention, and no user-visible breakage — call it 15–20% faster with a
+meaningfully better first impression. It does not change the phase-2 conclusion: the skill
+governs the native HTML path only, and the strongest finding (semantic layer + MCP as the
+product boundary) stands. The install bug — the reason we missed all of this — is itself
+feedback: the most important onboarding artifact ships behind a broken command.
+
+---
+
 ## Fit for the target audiences
 
 ### 1. Data / BI professionals replacing traditional dashboarding
