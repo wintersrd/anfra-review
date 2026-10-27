@@ -14,10 +14,15 @@ anfra dashboard and a Streamlit app wired through anfra's MCP server.
 | `datasets/running_analytics.dataset.aml` | Dataset with derived metrics (pace, weighted HR, run-only filters, aerobic efficiency) |
 | `docs/anfra-framework-review.md` | anfra framework review: strengths, weaknesses, issues → solutions |
 | `apps/running.html` | One-page dashboard: fitness (CTL/ATL/TSB), volume & consistency, speed trends, surface splits (road/trail/indoor), stride length & pace distribution, HR decoupling, hilliness, pace vs temperature — Great Wave (ukiyo-e) themed |
+| `apps/cycling.html` | Cycling dashboard (spec: `docs/cycling-app-spec.md`): FTP & %FTP zones, power/cadence analytics, ride-type splits — built via the `build-data-app` skill flow |
 | `streamlit_app/` | Streamlit port of the same dashboard (Plotly, day/night toggle, sport cross-filter); live data layer is `queries_aql.py` (AQL via `anfra_client`), with `queries.py` kept as the SQL test oracle — see below |
+| `streamlit_app/cycling_app.py` | Cycling dashboard (Streamlit tier) with `cycling_queries_aql.py` live layer + `cycling_queries.py` oracle — same two-file pattern; merged as reference: needs the v2 model extension (see `docs/cycling-model-delta.md`) |
+| `skills/anfra-streamlit-apps/` | Skill produced by the cycling experiment: build a Streamlit data app over the anfra semantic layer (oracle + equivalence + AppTest gates, worked example) |
 | `anfra_client/` | Python SDK over anfra's MCP server: typed logical-query API, error hierarchy, mock transport — **the boundary new data apps should code against** |
 | `tests/` | Four-layer suite (unit / integration / anfra / charts) + client SDK tests, capability matrix, frame edge cases, record/replay smoke, live AppTest |
 | `docs/anfra-client-guide.md` | Guide: build a new data app on the anfra backend with `anfra_client` (quickstart, error handling, testing patterns) |
+| `docs/reviews/SYNTHESIS.md` | Cycling build experiment: anfra-native vs Streamlit (pre/post-skill) — process & quality comparison, deployment recommendation, merge housekeeping; original per-flow reviews in `docs/reviews/{streamlit-initial,cycling-final}/`, build logs in `docs/worklogs/` |
+| `docs/cycling-model-delta.md` | Canonical (anfra) cycling model vs the Streamlit v2 extension — reconciliation checklist for un-skipping the reference suites |
 | `AGENTS.md` | Development guide for AI agents (start here) |
 | `.streamlit/config.toml` | Streamlit base theme (Great Wave light palette) |
 
