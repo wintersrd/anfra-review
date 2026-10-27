@@ -71,6 +71,25 @@ automatically after every DB build, so it never fights the anfra server for
 the DuckDB write lock. Night mode and the sport cross-filter (click a slice in
 "Hours by sport") live in-app; date/sport/surface filters are in the sidebar.
 
+### Cycling app
+
+A second Streamlit app, `streamlit_app/cycling_app.py`, covers the cycling
+side (spec: `docs/cycling-app-spec.md`): fitness & load (CTL/ATL/TSB,
+weekly cycling load & ramp), volume & consistency (weekly km + elevation,
+calendar heatmap, hours-by-type donut cross-filter), power (%FTP zones,
+intensity factor, weekly watts & W/kg), speed & cadence by ride type
+(road/virtual/mtb/gravel), endurance & terrain (HR decoupling on long rides,
+hilliness, speed vs temperature). Its data layer is the same two-file
+pattern: `cycling_queries_aql.py` (live AQL) equivalence-tested against
+`cycling_queries.py` (SQL oracle over the reader snapshot).
+
+```bash
+uv run streamlit run streamlit_app/cycling_app.py   # same server, same port
+```
+
+Every data call is logged to a load-log expander in the footer — those query
+keys (e.g. `power_zones_weekly`) are the vocabulary for change requests.
+
 ## Testing
 
 ```bash

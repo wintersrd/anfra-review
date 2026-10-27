@@ -300,6 +300,7 @@ if len(lr):
     fig.add_trace(line(lr["week_start"], lr["ramp_rate"], "Ramp rate", CAT[1], yaxis="y2"))
     fig.add_hline(
         y=0,
+        yref="y2",
         line_color=NEG,
         line_dash="dot",
         line_width=1,
@@ -423,8 +424,9 @@ with right:
             picked = None
         if picked != focus_sport:
             st.session_state.focus_sport = picked
-            if picked:
-                st.rerun()
+            # Unconditional: clearing the selection must take effect
+            # immediately, not on the next unrelated interaction.
+            st.rerun()
         if focus_sport:
             st.info(
                 f"Cross-filter active: **{SPORT_LABELS.get(focus_sport, focus_sport)}** "

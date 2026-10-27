@@ -147,6 +147,69 @@ Dataset running_analytics {
     format: '#,##0.00'
   }
 
+  metric cycling_activities {
+    label: 'Rides'
+    type: 'number'
+    description: 'Activities with a ride type (road / virtual / mtb / gravel); e-bike rides excluded.'
+    definition: @aql activities.activity_count | where(activities.ride_type is not null) ;;
+  }
+  metric cycling_distance_km {
+    label: 'Ride Distance'
+    type: 'number'
+    description: 'Total km across typed rides (null distances contribute nothing).'
+    definition: @aql (activities.total_distance_m / 1000.0) | where(activities.ride_type is not null) | where(activities.distance_m is not null) ;;
+    format: '#,###0.0 "km"'
+  }
+  metric cycling_time_h {
+    label: 'Ride Hours'
+    type: 'number'
+    description: 'Total moving hours across typed rides.'
+    definition: @aql (activities.total_time_s / 3600.0) | where(activities.ride_type is not null) ;;
+    format: '#,###0.0 "h"'
+  }
+  metric cycling_elev_gain_m {
+    label: 'Ride Elevation Gain'
+    type: 'number'
+    description: 'Total metres climbed across typed rides with elevation data.'
+    definition: @aql activities.total_elev_gain_m | where(activities.ride_type is not null) | where(activities.elev_gain_m is not null) ;;
+    format: '#,###0 "m"'
+  }
+  metric cycling_weighted_watts {
+    label: 'Ride Weighted Watts'
+    type: 'number'
+    description: 'Moving-time-weighted mean of weighted average power across typed rides with power.'
+    definition: @aql ((activities | sum(activities.weighted_avg_watts * activities.moving_time_s)) / (activities | sum(activities.moving_time_s))) | where(activities.ride_type is not null) | where(activities.weighted_avg_watts is not null) ;;
+    format: '#,###0 "W"'
+  }
+  metric cycling_if {
+    label: 'Ride Intensity Factor'
+    type: 'number'
+    description: 'Moving-time-weighted mean of weighted_avg_watts / ftp_ref across typed rides with power and a per-activity FTP.'
+    definition: @aql ((activities | sum(activities.weighted_avg_watts / activities.ftp_ref * activities.moving_time_s)) / (activities | sum(activities.moving_time_s))) | where(activities.ride_type is not null) | where(activities.weighted_avg_watts is not null) | where(activities.ftp_ref is not null) ;;
+    format: '0.00'
+  }
+  metric cycling_avg_cadence {
+    label: 'Ride Avg Cadence'
+    type: 'number'
+    description: 'Moving-time-weighted mean cadence (rpm) across typed rides with cadence > 40 rpm.'
+    definition: @aql ((activities | sum(activities.avg_cadence * activities.moving_time_s)) / (activities | sum(activities.moving_time_s))) | where(activities.ride_type is not null) | where(activities.avg_cadence > 40) ;;
+    format: '#,##0 "rpm"'
+  }
+  metric cycling_speed_kmh {
+    label: 'Ride Avg Speed'
+    type: 'number'
+    description: 'Overall speed = total km / moving hours across typed rides with distance.'
+    definition: @aql (activities.total_distance_m / 1000.0) / (activities.total_time_s / 3600.0) | where(activities.ride_type is not null) | where(activities.distance_m is not null) ;;
+    format: '#,###0.0 "km/h"'
+  }
+  metric cycling_elev_per_km {
+    label: 'Ride Hilliness'
+    type: 'number'
+    description: 'Elevation gain per km across typed rides with elevation data — a hilliness index.'
+    definition: @aql (activities | sum(activities.elev_gain_m)) / (activities | sum(activities.distance_m)) * 1000.0 | where(activities.ride_type is not null) | where(activities.elev_gain_m is not null) ;;
+    format: '#,##0 "m/km"'
+  }
+
   view {
     group load {
       metric total_load
@@ -176,6 +239,17 @@ Dataset running_analytics {
       metric run_activities
       metric strength_time_h
       metric ride_distance_km
+    }
+    group cycling {
+      metric cycling_activities
+      metric cycling_distance_km
+      metric cycling_time_h
+      metric cycling_elev_gain_m
+      metric cycling_weighted_watts
+      metric cycling_if
+      metric cycling_avg_cadence
+      metric cycling_speed_kmh
+      metric cycling_elev_per_km
     }
   }
 }

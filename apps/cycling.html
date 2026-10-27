@@ -1,0 +1,1596 @@
+<!doctype html>
+<!--
+  Cycling Analytics — one-page ride dashboard over dataset `running_analytics`.
+
+  Modules: KPI strip (current FTP, this week vs 4-week average, 90-day elevation,
+  90-day intensity factor) · fitness & load (CTL/ATL/TSB full history, weekly cycling
+  load & ramp) · volume (weekly km & elevation, calendar heatmap, ride-type mix donut,
+  weekly hours by type) · intensity & power (weekly hours by %FTP zone, monthly IF,
+  weekly weighted watts & W/kg) · speed & cadence (monthly speed / cadence by type,
+  weekly hours by cadence bucket, cadence-vs-speed scatter) · terrain & environment
+  (monthly hilliness, speed by temperature bucket) · long-ride endurance (decoupling
+  per ride with drift alarm, mean decoupling by type).
+
+  Restyled as a Hokusai "Great Wave" palette: paper cream + Prussian-indigo ink, foam-white
+  cards, ochre accents used sparingly, vermilion reserved for negative values and alerts.
+  Pure CSS + ECharts colors; the CDN assets and SRI hashes are untouched.
+
+  Two layers, change one without the other:
+  - Design layer: the Basecoat links, the <style> block (Great Wave palette on Basecoat's
+    variables), the markup classes, and chartTheme().
+  - SDK wiring: everything in the last <script> that touches `app`, a query, a filter or a drill.
+
+  Filter semantics: the date filter drives every chart on its grain-native date field
+  (activities.date, weekly_by_category.week_start), except fitness & form, which always
+  shows the full history capped at the range's end (a separate `weekCap` filter on
+  weekly_summary.week_start), and the KPI tiles, which use fixed wall-clock windows
+  (current ISO week; last 90 days) per the spec. The ride-type picker and the ride-mix
+  donut click (cross-filter) reach only activity-grain, type-split charts: the weekly
+  load, weekly hours by type, distance, calendar and decoupling views are deliberately
+  left out (all-ride or date-only by design). The default window is the last 90 days
+  of *data* (latest ride − 89 .. latest ride), so the dashboard renders right even on
+  stale data; re-picking a preset recalculates from the wall clock.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cycling Analytics</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.2.5/index.css"
+    integrity="sha384-ZTIcl2CmY0wyM9ANOhomBco7rEUIlWztf6lGcLKCocKUrIgGCsfisuZyE+hadW8K" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/basecoat.cdn.min.css"
+    integrity="sha384-XWKdrxzE2X33lI8Q03C9fIbqdLWV11whVNycR2/3bMNJY73EEQOa7rmN+SeiSCor" crossorigin="anonymous">
+  <script src="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/js/all.min.js"
+    integrity="sha384-rD2ZCuReXV7nIneJcn1lsTn6yOv87YARLQyUsemVAxrYYHdy5hcAW8XZEQxx87Dj" crossorigin="anonymous" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js"
+    integrity="sha384-C2iskrW/uPW46KzOjrvJIQo4YkV8lkD+QS0CrDN18IIPIpT/g2USu8bTP3nvmIAD" crossorigin="anonymous"></script>
+  <style>
+    /* Great Wave palette (Hokusai) on Basecoat's variables. Light is the palette spec:
+       paper cream, deep Prussian-indigo ink, foam-white cards, ochre accents, vermilion
+       reserved for negatives and drift alarms. Dark is the night-sea base with the same
+       indigo ramp lifted one step for contrast. ECharts cannot parse color functions,
+       so chart colors are hex. Ride-type semantics everywhere: road = primary indigo,
+       virtual = slate, mtb = ochre tan, gravel = pine green. The %FTP zone ramp goes
+       cool (easy) to vermilion (max), independently of ride-type colors. */
+    :root {
+      --background: #F2EFE9;                         /* paper: the page */
+      --foreground: #16324F;                         /* deep Prussian-indigo ink */
+      --card: #FAF7F0;                               /* foam white: panels */
+      --card-foreground: #16324F;
+      --popover: #FAF7F0;
+      --popover-foreground: #16324F;
+      --primary: #1E4368;                            /* the one indigo */
+      --primary-foreground: #FAF7F0;
+      --secondary: #EFEAD8;                          /* warmer paper: sunken surfaces */
+      --secondary-foreground: #31485F;
+      --muted: #EDE9DE;
+      --muted-foreground: #55677B;
+      --accent: #E2E9F0;                             /* indigo wash: hover, selected */
+      --accent-foreground: #16324F;
+      --border: rgba(22, 50, 79, 0.16);              /* soft indigo-tinted borders */
+      --input: rgba(22, 50, 79, 0.24);
+      --ring: #1E4368;
+      --radius: 0.625rem;
+      --ochre: #C9A66B;                              /* sparing: presets, highlights */
+      --vermilion: #B4533C;                          /* negative values, drift alarms */
+      --chart-text: #35506B;
+      --chart-grid: rgba(22, 50, 79, 0.10);          /* barely-there gridlines */
+      /* Categorical palette (print-like hues, alternating families). */
+      --chart-cat-1: #16324F; --chart-cat-2: #C9A66B; --chart-cat-3: #4A6B57; --chart-cat-4: #3E7CB1;
+      --chart-cat-5: #B4533C; --chart-cat-6: #7E6A8A; --chart-cat-7: #6FA8D0; --chart-cat-8: #6E7F92;
+      /* Ride-type semantic colors — identical in every chart. */
+      --chart-road: #1E4368; --chart-virtual: #6E7F92; --chart-mtb: #C9A66B; --chart-gravel: #4A6B57;
+      /* %FTP zone ramp: recovery (pale blue) → max (deep vermilion). */
+      --chart-z1: #A9CBE4; --chart-z2: #6FA8D0; --chart-z3: #1E4368;
+      --chart-z4: #C9A66B; --chart-z5: #B4533C; --chart-z6: #8A2F1F;
+      --chart-pos: #2C5F8A; --chart-neg: #B4533C;
+    }
+    /* .dark covers direct-class apps; [data-theme] covers the anfra frame toggle. */
+    .dark, :root[data-theme="dark"] {
+      --background: #0E1B2A;                         /* deep night-sea base */
+      --foreground: #EAF0F6;                         /* foam white text */
+      --card: #16283C;                               /* slightly lighter card surface */
+      --card-foreground: #EAF0F6;
+      --popover: #1B3048;
+      --popover-foreground: #EAF0F6;
+      --primary: #8FB4D4;                            /* indigo ramp lifted one step */
+      --primary-foreground: #0E1B2A;
+      --secondary: #1C324A;
+      --secondary-foreground: #C3D3E2;
+      --muted: #1C324A;
+      --muted-foreground: #9DB2C6;
+      --accent: #24405C;
+      --accent-foreground: #EAF0F6;
+      --border: rgba(234, 240, 246, 0.14);
+      --input: rgba(234, 240, 246, 0.2);
+      --ring: #8FB4D4;
+      --ochre: #D9BC85;
+      --vermilion: #D97B5F;
+      --chart-text: #C3D3E2;
+      --chart-grid: rgba(234, 240, 246, 0.08);
+      --chart-cat-1: #A9CBE4; --chart-cat-2: #D9BC85; --chart-cat-3: #8FB39A; --chart-cat-4: #7FB3D8;
+      --chart-cat-5: #D97B5F; --chart-cat-6: #B39DC4; --chart-cat-7: #4785B4; --chart-cat-8: #93A9BF;
+      --chart-road: #A9CBE4; --chart-virtual: #93A9BF; --chart-mtb: #D9BC85; --chart-gravel: #8FB39A;
+      --chart-z1: #4C7CA6; --chart-z2: #5C9CC9; --chart-z3: #A9CBE4;
+      --chart-z4: #D9BC85; --chart-z5: #D97B5F; --chart-z6: #B4533C;
+      --chart-pos: #85B4D8; --chart-neg: #D97B5F;
+    }
+
+    /* Three sizes only (20, 14, 12px), one control height (32px), tabular numerals. */
+    body {
+      font: 14px/20px "Inter Variable", Inter, system-ui, sans-serif;
+      font-variant-numeric: tabular-nums;
+      background: var(--background); color: var(--foreground);
+      margin: 0; padding: 24px; max-width: 1280px; margin-inline: auto;
+    }
+    h1 { font-size: 20px; line-height: 28px; font-weight: 600; margin: 0; text-wrap: balance; }
+    h2 { font-size: 14px; line-height: 20px; font-weight: 600; }
+    .caption { font-size: 12px; line-height: 16px; color: var(--muted-foreground); }
+    .header { margin-bottom: 16px; position: relative; display: flex; align-items: center; gap: 12px; }
+    /* In-app day/night toggle (the anfra frame's toggle can't reach this sandboxed
+       iframe's document, so the dashboard carries its own). */
+    .theme-toggle {
+      margin-left: auto; align-self: center; flex: 0 0 auto;
+      width: 32px; height: 32px; padding: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: var(--card); color: var(--muted-foreground);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      cursor: pointer;
+    }
+    .theme-toggle:hover { color: var(--foreground); border-color: var(--input); }
+    .theme-toggle svg { width: 16px; height: 16px; display: block; }
+    .theme-toggle .icon-sun { display: none; }
+    .dark .theme-toggle .icon-sun { display: block; }
+    .dark .theme-toggle .icon-moon { display: none; }
+    /* Great Wave motif: layered translucent arcs anchored bottom-right of the header.
+       Pure CSS, very low opacity — decoration that never competes with the text. */
+    .header::before, .header::after {
+      content: ""; position: absolute; z-index: -1; pointer-events: none;
+    }
+    .header::before {
+      top: -20px; right: -16px; width: 400px; height: 110px;
+      background:
+        radial-gradient(circle at 72% 140%, transparent 54px,
+          color-mix(in oklab, var(--primary) 14%, transparent) 55px 58px, transparent 59px),
+        radial-gradient(circle at 72% 140%, transparent 84px,
+          color-mix(in oklab, var(--primary) 10%, transparent) 85px 88px, transparent 89px),
+        radial-gradient(circle at 72% 140%, transparent 116px,
+          color-mix(in oklab, var(--ochre) 12%, transparent) 117px 120px, transparent 121px);
+    }
+    .header::after {
+      top: 10px; right: 350px; width: 240px; height: 76px;
+      background:
+        radial-gradient(circle at 80% 150%, transparent 40px,
+          color-mix(in oklab, var(--primary) 8%, transparent) 41px 43px, transparent 44px),
+        radial-gradient(circle at 80% 150%, transparent 64px,
+          color-mix(in oklab, var(--primary) 6%, transparent) 65px 67px, transparent 68px);
+    }
+    @media (max-width: 900px) { .header::before, .header::after { display: none; } }
+    .note { margin: 0 0 16px; }
+    .footer { margin: 24px 0 8px; }
+    .btn, .input { height: 32px; font-size: 14px; }
+    .card { border-radius: 14px; box-shadow: none; position: relative; }
+    .card > header { padding-bottom: 0; }
+    .card h2 { font-size: 14px; line-height: 20px; font-weight: 600; }
+
+    /* Filter bar: one row, wraps on narrow screens. */
+    /* Basecoat's .card is a clipped column: make the bar a row and let combobox dropdowns overflow. */
+    .card.filters { flex-direction: row; flex-wrap: wrap; gap: 16px; align-items: flex-end;
+                    justify-content: flex-start; padding: 12px 16px; margin-bottom: 12px;
+                    overflow: visible; }
+    .field-group { display: flex; flex-direction: column; gap: 8px; }
+    .field-group > label, .field-group > .caption { font-weight: 500; }
+    .date-range { display: flex; align-items: center; gap: 8px; }
+    .date-range .input { width: 9.5rem; }
+    .presets { display: flex; gap: 4px; }
+    .presets .btn { border-color: color-mix(in oklab, var(--ochre) 40%, var(--border)); }
+    .spacer { flex: 1; }
+
+    /* Cross-filter focus banner: shown only while a donut slice focus is active. */
+    .banner {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 8px 16px; margin-bottom: 12px;
+      border-left: 3px solid var(--ochre);
+    }
+    .banner[hidden] { display: none; }
+    .banner .btn { flex: 0 0 auto; }
+
+    /* Modules */
+    .module-title { margin: 20px 0 8px; font-size: 14px; font-weight: 600; }
+    .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 4px; }
+    @media (max-width: 1100px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 640px)  { .kpis { grid-template-columns: 1fr; } }
+    .kpi { padding: 12px 14px; gap: 2px; }
+    .kpi-label { font-size: 12px; line-height: 16px; color: var(--muted-foreground); }
+    .kpi-value { font-size: 20px; line-height: 28px; font-weight: 600; }
+    .kpi-sub { font-size: 12px; line-height: 16px; color: var(--muted-foreground); }
+
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    .span2 { grid-column: 1 / -1; }
+    @media (max-width: 900px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+    .chart { height: 300px; }
+    .chart.tall { height: 340px; }
+    .status { position: absolute; inset: 46px 16px 16px; display: none; align-items: center;
+              justify-content: center; background: color-mix(in oklab, var(--card) 85%, transparent); }
+    .kpi .status { inset: 0; border-radius: 14px; }
+    .status.visible { display: flex; }
+    .status > * { width: 100%; }
+    .status .skeleton { height: 100%; min-height: 40px; border-radius: 10px; }
+    .status .empty { text-align: center; color: var(--muted-foreground); }
+  </style>
+</head>
+<body>
+  <main data-anfra-container="page" data-anfra-label="Cycling Analytics">
+    <div class="header">
+      <h1>Cycling Analytics</h1>
+      <div class="caption" id="user"></div>
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle day/night" title="Toggle day/night">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>
+        </svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="card filters" data-anfra-container="controls" data-anfra-label="Filters">
+      <div class="field-group" data-anfra-block="date-picker" data-anfra-label="Date range" data-anfra-control="dates">
+        <label for="date-from">Date range</label>
+        <div class="date-range">
+          <input id="date-from" class="input" type="date" aria-label="From">
+          <span class="caption">to</span>
+          <input id="date-to" class="input" type="date" aria-label="To">
+        </div>
+      </div>
+
+      <div class="field-group">
+        <span class="caption">Quick range</span>
+        <div class="presets">
+          <button class="btn" data-variant="outline" type="button" data-days="30">30d</button>
+          <button class="btn" data-variant="outline" type="button" data-days="90">90d</button>
+          <button class="btn" data-variant="outline" type="button" data-days="ytd">YTD</button>
+          <button class="btn" data-variant="ghost" type="button" data-days="all">All</button>
+        </div>
+      </div>
+
+      <div class="field-group" data-anfra-block="ride-type-picker" data-anfra-label="Ride type" data-anfra-control="rideType">
+        <label for="ride-type-input">Ride type</label>
+        <!-- Basecoat multi-select combobox: fixed road/virtual/mtb/gravel options, no loadOptions needed -->
+        <div id="ride-type-combobox" class="combobox" style="width: 240px" data-auto-highlight="true">
+          <input id="ride-type-input" type="text" role="combobox" placeholder="All ride types" autocomplete="off"
+                 autocorrect="off" spellcheck="false" aria-autocomplete="list" aria-expanded="false"
+                 aria-controls="ride-type-listbox">
+          <div id="ride-type-popover" data-popover aria-hidden="true">
+            <div role="listbox" id="ride-type-listbox" aria-orientation="vertical" aria-multiselectable="true"
+                 data-empty="No ride types found."></div>
+          </div>
+          <input type="hidden" name="ride-type" value="[]">
+        </div>
+      </div>
+
+      <div class="spacer"></div>
+      <button id="clear-selection" class="btn" data-variant="ghost" type="button">Clear selection</button>
+    </div>
+    <p class="caption note">
+      The date range drives every chart on its own grain. The ride-type picker and clicking a slice in the
+      ride-mix donut focus the activity-based charts and tiles — except fitness &amp; form (all sports, full
+      history capped at the range end), weekly cycling load, weekly hours by type, weekly distance, the
+      calendar and both decoupling views, which ignore the type focus by design. The tiles use fixed
+      wall-clock windows (this week; last 90 days), so the date range does not move them. The default view
+      is the last 90 days of data; re-picking a preset recalculates from today.
+    </p>
+
+    <div id="focus-banner" class="card banner" data-anfra-block="focus-banner" data-anfra-label="Cross-filter focus" hidden>
+      <span id="focus-text" aria-live="polite"></span>
+      <button id="clear-focus" class="btn" data-variant="outline" type="button">Clear focus</button>
+    </div>
+
+    <div class="kpis" data-anfra-container="kpis" data-anfra-label="Insights">
+      <section class="card kpi" data-anfra-block="kpi-ftp" data-anfra-label="Current FTP" data-anfra-query="appMeta">
+        <div class="kpi-label">Current FTP</div>
+        <div class="kpi-value" id="kpi-ftp-value">–</div>
+        <div class="kpi-sub" id="kpi-ftp-sub">used for %FTP &amp; IF</div>
+        <div id="kpi-ftp-status" class="status"></div>
+      </section>
+      <section class="card kpi" data-anfra-block="kpi-week" data-anfra-label="Ride distance this week" data-anfra-query="kpiWeekKm">
+        <div class="kpi-label">Ride distance · this week</div>
+        <div class="kpi-value" id="kpi-week-value">–</div>
+        <div class="kpi-sub" id="kpi-week-sub">vs 4-week average</div>
+        <div id="kpi-week-status" class="status"></div>
+      </section>
+      <section class="card kpi" data-anfra-block="kpi-elev-90d" data-anfra-label="Elevation last 90 days" data-anfra-query="kpi90">
+        <div class="kpi-label">Elevation · last 90 days</div>
+        <div class="kpi-value" id="kpi-90d-value">–</div>
+        <div class="kpi-sub" id="kpi-90d-sub">–</div>
+        <div id="kpi-90d-status" class="status"></div>
+      </section>
+      <section class="card kpi" data-anfra-block="kpi-if-90d" data-anfra-label="Intensity last 90 days" data-anfra-query="kpiIf90">
+        <div class="kpi-label">Intensity · last 90 days</div>
+        <div class="kpi-value" id="kpi-if-value">–</div>
+        <div class="kpi-sub" id="kpi-if-sub">duration-weighted IF</div>
+        <div id="kpi-if-status" class="status"></div>
+      </section>
+    </div>
+
+    <section data-anfra-container="module-fitness" data-anfra-label="Fitness &amp; Load">
+      <h2 class="module-title">Fitness &amp; load <span class="caption">CTL/ATL/TSB are athlete-level (all sports)</span></h2>
+      <div class="grid2">
+        <div class="card" data-anfra-block="fitness-trend" data-anfra-label="Fitness, fatigue &amp; form">
+          <header><h2>Fitness, fatigue &amp; form <span class="caption">CTL / ATL left · TSB right · full history to range end</span></h2></header>
+          <section><div id="fitness-trend" class="chart" data-anfra-query="fitnessTrend"></div></section>
+          <div id="fitness-trend-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="weekly-load" data-anfra-label="Weekly load &amp; ramp rate">
+          <header><h2>Weekly cycling load <span class="caption">load left · ramp rate right (this week − last week)</span></h2></header>
+          <section><div id="weekly-load" class="chart" data-anfra-query="weeklyLoad"></div></section>
+          <div id="weekly-load-status" class="status"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-anfra-container="module-volume" data-anfra-label="Volume &amp; Consistency">
+      <h2 class="module-title">Volume &amp; consistency</h2>
+      <div class="grid2">
+        <div class="card" data-anfra-block="weekly-dist" data-anfra-label="Weekly ride distance &amp; elevation">
+          <header><h2>Weekly ride distance <span class="caption">km left · elevation gain right</span></h2></header>
+          <section><div id="weekly-dist" class="chart" data-anfra-query="weeklyDist"></div></section>
+          <div id="weekly-dist-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="daily-heatmap" data-anfra-label="Daily ride distance heatmap">
+          <header><h2>Daily ride distance <span class="caption">calendar heatmap · ride km per day</span></h2></header>
+          <section><div id="daily-heatmap" class="chart tall" data-anfra-query="dailyKm"></div></section>
+          <div id="daily-heatmap-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="ride-mix" data-anfra-label="Time by ride type">
+          <header><h2>Time by ride type <span class="caption">click a slice to focus the other charts</span></h2></header>
+          <section><div id="ride-mix" class="chart" data-anfra-query="rideMix"></div></section>
+          <div id="ride-mix-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="weekly-type-hours" data-anfra-label="Weekly hours by ride type">
+          <header><h2>Weekly hours by ride type <span class="caption">stacked · all ride types (not type-filtered)</span></h2></header>
+          <section><div id="weekly-type-hours" class="chart" data-anfra-query="weeklyTypeHours"></div></section>
+          <div id="weekly-type-hours-status" class="status"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-anfra-container="module-intensity" data-anfra-label="Intensity &amp; Power">
+      <h2 class="module-title">Intensity &amp; power <span class="caption">rides with power &amp; FTP</span></h2>
+      <div class="grid2">
+        <div class="card span2" data-anfra-block="ftp-zones" data-anfra-label="Weekly hours by %FTP zone">
+          <header><h2>Weekly hours by %FTP zone <span class="caption">stacked · %FTP = weighted watts ÷ FTP per ride · <span id="ftp-zones-count">qualifying rides: …</span></span></h2></header>
+          <section><div id="ftp-zones" class="chart" data-anfra-query="ftpZones"></div></section>
+          <div id="ftp-zones-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="intensity-trend" data-anfra-label="Monthly intensity factor">
+          <header><h2>Intensity by month <span class="caption">duration-weighted IF · Σ(IF·time) ÷ Σtime · from FTP</span></h2></header>
+          <section><div id="intensity-trend" class="chart" data-anfra-query="intensityTrend"></div></section>
+          <div id="intensity-trend-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="how-to-read" data-anfra-label="How to read the power charts">
+          <header><h2>How to read the power charts</h2></header>
+          <section class="caption">
+            <p>FTP comes from the ride itself (intervals.icu per-activity FTP); the tile shows the latest one.
+            %FTP = weighted watts ÷ FTP, binned left-inclusive: Z1 &lt;55%, Z2 55–75%, Z3 75–90%,
+            Z4 90–105%, Z5 105–120%, Z6 ≥120%.</p>
+            <p>IF (intensity factor) = weighted watts ÷ FTP per ride; the monthly line weights each ride
+            by its moving time. W/kg divides the week's weighted watts by body weight: that week's average,
+            else the most recent earlier week. Weeks without a known weight show a gap in W/kg only.</p>
+          </section>
+        </div>
+        <div class="card span2" data-anfra-block="weekly-watts" data-anfra-label="Weekly watts &amp; W/kg">
+          <header><h2>Weekly power <span class="caption">duration-weighted watts left · W/kg right · weight = that week's avg, else latest prior week · from FTP rides</span></h2></header>
+          <section><div id="weekly-watts" class="chart tall" data-anfra-query="weeklyWatts"></div></section>
+          <div id="weekly-watts-status" class="status"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-anfra-container="module-speed" data-anfra-label="Speed &amp; Cadence">
+      <h2 class="module-title">Speed &amp; cadence</h2>
+      <div class="grid2">
+        <div class="card" data-anfra-block="speed-by-type" data-anfra-label="Avg speed by month &amp; type">
+          <header><h2>Avg speed by month <span class="caption">km/h · rides ≥ 1 km · gaps = no qualifying rides that month</span></h2></header>
+          <section><div id="speed-by-type" class="chart" data-anfra-query="speedByType"></div></section>
+          <div id="speed-by-type-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="cadence-by-type" data-anfra-label="Avg cadence by month &amp; type">
+          <header><h2>Avg cadence by month <span class="caption">duration-weighted rpm · cadence &gt; 40 rpm only</span></h2></header>
+          <section><div id="cadence-by-type" class="chart" data-anfra-query="cadenceByType"></div></section>
+          <div id="cadence-by-type-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="cadence-blocks" data-anfra-label="Weekly hours by cadence bucket">
+          <header><h2>Weekly hours by cadence bucket <span class="caption">stacked · <span id="cadence-blocks-count">qualifying rides: …</span> (cadence &gt; 40 rpm)</span></h2></header>
+          <section><div id="cadence-blocks" class="chart" data-anfra-query="cadenceBlocks"></div></section>
+          <div id="cadence-blocks-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="cadence-speed" data-anfra-label="Cadence vs speed">
+          <header><h2>Cadence vs speed <span class="caption">one dot per ride · rides with speed &amp; cadence</span></h2></header>
+          <section><div id="cadence-speed" class="chart tall" data-anfra-query="cadenceSpeed"></div></section>
+          <div id="cadence-speed-status" class="status"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-anfra-container="module-terrain" data-anfra-label="Terrain &amp; Environment">
+      <h2 class="module-title">Terrain &amp; environment</h2>
+      <div class="grid2">
+        <div class="card" data-anfra-block="hilliness" data-anfra-label="Hilliness by month &amp; type">
+          <header><h2>Hilliness by month <span class="caption">elevation gain per km (m/km) · rides ≥ 1 km</span></h2></header>
+          <section><div id="hilliness" class="chart" data-anfra-query="hilliness"></div></section>
+          <div id="hilliness-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="speed-by-temp" data-anfra-label="Avg speed by temperature">
+          <header><h2>Speed by temperature <span class="caption">avg per 5 °C bucket · count on hover · warmer buckets are largely indoor rides — “warmer = faster” is a mix artifact, not weather</span></h2></header>
+          <section><div id="speed-by-temp" class="chart" data-anfra-query="speedByTemp"></div></section>
+          <div id="speed-by-temp-status" class="status"></div>
+        </div>
+      </div>
+    </section>
+
+    <section data-anfra-container="module-endurance" data-anfra-label="Long-ride Endurance">
+      <h2 class="module-title">Long-ride endurance <span class="caption">long ride = ≥ 75 min moving · decoupling as provided by intervals.icu</span></h2>
+      <div class="grid2">
+        <div class="card" data-anfra-block="long-decoupling" data-anfra-label="Decoupling per long ride">
+          <header><h2>Decoupling over time <span class="caption"><span id="long-decoupling-count">…</span> · dash = average · ◆ above +8% = drift alarm</span></h2></header>
+          <section><div id="long-decoupling" class="chart tall" data-anfra-query="longDecoupling"></div></section>
+          <div id="long-decoupling-status" class="status"></div>
+        </div>
+        <div class="card" data-anfra-block="decoupling-by-type" data-anfra-label="Decoupling by ride type">
+          <header><h2>Decoupling by ride type <span class="caption">mean % over long rides with decoupling · hover for ride counts</span></h2></header>
+          <section><div id="decoupling-by-type" class="chart" data-anfra-query="decouplingByType"></div></section>
+          <div id="decoupling-by-type-status" class="status"></div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="caption footer">
+      <div id="footer-meta">Data source: intervals.icu</div>
+      <div>
+        FTP = the ride's per-activity FTP from intervals.icu, else the latest known FTP — used for %FTP zones,
+        IF and the FTP tile · IF = weighted watts ÷ FTP · W/kg uses the ride week's average body weight, else
+        the most recent earlier week · Decoupling as provided by intervals.icu, never inverted · Long ride =
+        75 min or more moving · E-bike rides excluded · Week = ISO week, Monday-start.
+      </div>
+    </footer>
+  </main>
+
+  <script>
+    // ---- Design layer: the dashboard lives in a sandboxed iframe, so the frame's
+    // day/night button can't reach this document. Priority: the in-app toggle,
+    // then a data-theme attribute (future frame support), then the OS setting. ----
+    const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    let userTheme = null; // 'dark' | 'light' once the in-app toggle is used
+    const isDark = () => {
+      if (userTheme) return userTheme === 'dark';
+      const t = document.documentElement.dataset.theme;
+      if (t === 'dark' || t === 'light') return t === 'dark';
+      return darkQuery.matches;
+    };
+    const applyTheme = () => document.documentElement.classList.toggle('dark', isDark());
+    applyTheme();
+
+    function chartTheme () {
+      const css = getComputedStyle(document.documentElement);
+      const get = (name) => css.getPropertyValue(name).trim();
+      return {
+        dark: isDark(),
+        text: get('--chart-text'),
+        grid: get('--chart-grid'),
+        cat: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => get(`--chart-cat-${n}`)),
+        type: { road: get('--chart-road'), virtual: get('--chart-virtual'), mtb: get('--chart-mtb'), gravel: get('--chart-gravel') },
+        zones: [1, 2, 3, 4, 5, 6].map((n) => get(`--chart-z${n}`)),
+        pos: get('--chart-pos'),
+        neg: get('--chart-neg'),
+        ochre: get('--ochre'),
+      };
+    }
+
+    // ---- Formatting helpers. Numbers arrive as strings; charts and math need Number(). ----
+    const num = (v) => (v == null ? null : Number(v));
+    const fmt0 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+    const fmt1 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+    const fmt2 = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const km = (v) => (v == null ? '–' : fmt1.format(v) + ' km');
+    const hours = (v) => (v == null ? '–' : fmt1.format(v) + ' h');
+    const day = (iso) => String(iso).slice(0, 10);
+    const localIso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    // Current week = ISO Monday-start week of today (wall clock, local — never UTC).
+    function currentMonday () {
+      const d = new Date();
+      const local = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      local.setDate(local.getDate() - ((local.getDay() + 6) % 7));
+      return local;
+    }
+
+    // Ride-type order and labels (canonical order for legends; values match the data).
+    const TYPES = ['road', 'virtual', 'mtb', 'gravel'];
+    // %FTP zones, left-inclusive — labels must match the AQL case() exactly.
+    const ZONES = ['Z1 <55%', 'Z2 55-75%', 'Z3 75-90%', 'Z4 90-105%', 'Z5 105-120%', 'Z6 >=120%'];
+    // Cadence buckets, left-inclusive — labels must match the AQL case() exactly.
+    const BUCKETS = ['<60', '60-70', '70-80', '80-90', '90-100', '>=100'];
+
+    // ---- SDK wiring ----
+    const app = Anfra.createApp({ title: 'Cycling Analytics' });
+
+    // KPIs --------------------------------------------------------------------
+    // K1 + footer: latest ride date, latest FTP (per-activity FTP, most recent),
+    // total analyzed rides. No controls map here (fixed context).
+    const appMeta = app.createQuery('appMeta', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          measures {
+            latest_ride: activities | max(activities.date) | where(activities.ride_type is not null),
+            latest_ftp: activities | max_by(activities.ftp_ref, activities.date) | where(activities.ftp_ref is not null),
+            total_rides: cycling_activities
+          }
+        }
+      `,
+    });
+
+    // K2: weekly km rows back to ~5 weeks ago (static window; the JS slices the
+    // current ISO week and the 4 preceding complete weeks from the wall clock).
+    const kpiWeekKm = app.createQuery('kpiWeekKm', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { week: activities.week_start }
+          measures { km: cycling_distance_km }
+          filters { activities.week_start >= @(5 weeks ago) }
+          sorts { week asc }
+        }
+      `,
+    });
+
+    // K3: wall-clock 90-day elevation + distance.
+    const kpi90 = app.createQuery('kpi90', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          measures {
+            elev_m: cycling_elev_gain_m | where(activities.date matches @(last 90 days)),
+            total_km: cycling_distance_km | where(activities.date matches @(last 90 days))
+          }
+        }
+      `,
+    });
+
+    // K4: wall-clock 90-day duration-weighted IF + qualifying power rides.
+    const kpiIf90 = app.createQuery('kpiIf90', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          measures {
+            if_avg: cycling_if | where(activities.date matches @(last 90 days)),
+            power_rides: activities.activity_count | where(activities.ride_type is not null) | where(activities.weighted_avg_watts is not null) | where(activities.date matches @(last 90 days))
+          }
+        }
+      `,
+    });
+
+    // Fitness & load ------------------------------------------------------------
+    // C1: full-history CTL/ATL/TSB at weekly grain; the weekCap filter (mapped only
+    // here) caps the right edge at the end of the selected range.
+    const fitnessTrend = app.createQuery('fitnessTrend', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { week: weekly_summary.week_start }
+          measures { ctl: weekly_summary.ctl, atl: weekly_summary.atl, tsb: weekly_summary.tsb }
+          sorts { week asc }
+        }
+      `,
+    });
+
+    // C2: weekly cycling load (weekly_by_category 'Ride'); ramp rate is computed in JS.
+    const weeklyLoad = app.createQuery('weeklyLoad', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { week: weekly_by_category.week_start }
+          measures { load: weekly_by_category.cat_load }
+          filters { weekly_by_category.category == 'Ride' }
+          sorts { week asc }
+        }
+      `,
+    });
+
+    // Volume ---------------------------------------------------------------------
+    const weeklyDist = app.createQuery('weeklyDist', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { week: activities.week_start }
+          measures { ride_km: cycling_distance_km, elev_gain_m: cycling_elev_gain_m }
+          sorts { week asc }
+        }
+      `,
+    });
+
+    const dailyKm = app.createQuery('dailyKm', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { day: activities.date }
+          measures { ride_km: cycling_distance_km }
+          sorts { day asc }
+        }
+      `,
+    });
+
+    // C5 cross-filter source: the donut itself is NOT filtered by the ride-type
+    // picker (it stays the navigator over the full mix).
+    const rideMix = app.createQuery('rideMix', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { ride_type: activities.ride_type }
+          measures { hours: cycling_time_h }
+          sorts { hours desc }
+        }
+      `,
+    });
+
+    const weeklyTypeHours = app.createQuery('weeklyTypeHours', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { week: activities.week_start, ride_type: activities.ride_type }
+          measures { hours: cycling_time_h }
+          sorts { week asc }
+        }
+      `,
+    });
+
+    // Intensity & power ------------------------------------------------------------
+    const ftpZones = app.createQuery('ftpZones', {
+      dataset: 'running_analytics',
+      aql: `
+        dimension activities.ftp_zone = case(
+          when: activities.weighted_avg_watts / activities.ftp_ref * 100.0 < 55, then: "Z1 <55%",
+          when: activities.weighted_avg_watts / activities.ftp_ref * 100.0 < 75, then: "Z2 55-75%",
+          when: activities.weighted_avg_watts / activities.ftp_ref * 100.0 < 90, then: "Z3 75-90%",
+          when: activities.weighted_avg_watts / activities.ftp_ref * 100.0 < 105, then: "Z4 90-105%",
+          when: activities.weighted_avg_watts / activities.ftp_ref * 100.0 < 120, then: "Z5 105-120%",
+          else: "Z6 >=120%"
+        );
+        explore {
+          dimensions { week: activities.week_start, zone: activities.ftp_zone }
+          measures { hours: cycling_time_h, rides: cycling_activities }
+          filters { activities.weighted_avg_watts is not null, activities.ftp_ref is not null }
+          sorts { week asc }
+        }
+      `,
+    });
+
+    const intensityTrend = app.createQuery('intensityTrend', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { month: activities.month }
+          measures { if_avg: cycling_if }
+          filters { activities.ride_type is not null }
+          sorts { month asc }
+        }
+      `,
+    });
+
+    const weeklyWatts = app.createQuery('weeklyWatts', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { week: activities.week_start }
+          measures { watts: cycling_weighted_watts }
+          sorts { week asc }
+        }
+      `,
+    });
+
+    // All-time weekly body weight (reference for W/kg carry-forward, §8.5).
+    // Deliberately not date-filtered: carry-forward needs weeks before the window.
+    const weightHistory = app.createQuery('weightHistory', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { week: weekly_summary.week_start }
+          measures { weight_kg: weekly_summary.avg_weight }
+          filters { weekly_summary.avg_weight_kg is not null }
+          sorts { week asc }
+        }
+      `,
+    });
+
+    // Speed & cadence -----------------------------------------------------------------
+    const speedByType = app.createQuery('speedByType', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { month: activities.month, ride_type: activities.ride_type }
+          measures { speed_kmh: cycling_speed_kmh }
+          filters { activities.ride_type is not null, activities.distance_m >= 1000 }
+          sorts { month asc }
+        }
+      `,
+    });
+
+    const cadenceByType = app.createQuery('cadenceByType', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { month: activities.month, ride_type: activities.ride_type }
+          measures { cadence_rpm: cycling_avg_cadence }
+          filters { activities.ride_type is not null }
+          sorts { month asc }
+        }
+      `,
+    });
+
+    const cadenceBlocks = app.createQuery('cadenceBlocks', {
+      dataset: 'running_analytics',
+      aql: `
+        dimension activities.cadence_bucket = case(
+          when: activities.avg_cadence < 60, then: "<60",
+          when: activities.avg_cadence < 70, then: "60-70",
+          when: activities.avg_cadence < 80, then: "70-80",
+          when: activities.avg_cadence < 90, then: "80-90",
+          when: activities.avg_cadence < 100, then: "90-100",
+          else: ">=100"
+        );
+        explore {
+          dimensions { week: activities.week_start, bucket: activities.cadence_bucket }
+          measures { hours: cycling_time_h, rides: cycling_activities }
+          filters { activities.ride_type is not null, activities.avg_cadence > 40 }
+          sorts { week asc }
+        }
+      `,
+    });
+
+    const cadenceSpeed = app.createQuery('cadenceSpeed', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions {
+            id: activities.id,
+            name: activities.name,
+            date: activities.date,
+            ride_type: activities.ride_type
+          }
+          measures {
+            speed_ms: activities | avg(activities.avg_speed_ms),
+            cadence: activities | avg(activities.avg_cadence)
+          }
+          filters { activities.ride_type is not null, activities.avg_speed_ms is not null, activities.avg_cadence > 40 }
+          sorts { date asc }
+        }
+      `,
+    });
+
+    // Terrain & environment -----------------------------------------------------------
+    const hilliness = app.createQuery('hilliness', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { month: activities.month, ride_type: activities.ride_type }
+          measures { elev_per_km: cycling_elev_per_km }
+          filters { activities.ride_type is not null, activities.distance_m >= 1000 }
+          sorts { month asc }
+        }
+      `,
+    });
+
+    const speedByTemp = app.createQuery('speedByTemp', {
+      dataset: 'running_analytics',
+      aql: `
+        dimension activities.temp_bucket_c = case(
+          when: activities.avg_temp_c < 0, then: -5,
+          else: floor(activities.avg_temp_c / 5.0) * 5.0
+        );
+        explore {
+          dimensions { bucket: activities.temp_bucket_c }
+          measures { speed_kmh: cycling_speed_kmh, rides: cycling_activities }
+          filters { activities.ride_type is not null, activities.avg_temp_c is not null }
+          sorts { bucket asc }
+        }
+      `,
+    });
+
+    // Long-ride endurance ----------------------------------------------------------------
+    // C16: per long ride — decoupling where present (long_dec), plus a 1/0 long-ride
+    // flag (long_all) so the caption can count long rides *without* decoupling (§6.4).
+    const longDecoupling = app.createQuery('longDecoupling', {
+      dataset: 'running_analytics',
+      aql: `
+        metric long_dec = activities | where(activities.moving_time_s >= 4500) | where(activities.decoupling is not null) | avg(activities.decoupling);
+        metric long_all = activities.activity_count | where(activities.moving_time_s >= 4500);
+        explore {
+          dimensions { id: activities.id, name: activities.name, date: activities.date }
+          measures { decoupling_pct: long_dec, is_long: long_all }
+          filters { activities.ride_type is not null }
+          sorts { date asc }
+        }
+      `,
+    });
+
+    const decouplingByType = app.createQuery('decouplingByType', {
+      dataset: 'running_analytics',
+      aql: `
+        explore {
+          dimensions { ride_type: activities.ride_type }
+          measures { decoupling_pct: activities | avg(activities.decoupling), rides: cycling_activities }
+          filters { activities.ride_type is not null, activities.moving_time_s >= 4500, activities.decoupling is not null }
+          sorts { decoupling_pct desc }
+        }
+      `,
+    });
+
+    // Controls ----------------------------------------------------------------
+    const dates = app.createFilter('dates', { dataset: 'running_analytics', field: 'activities.date' });
+    const weekCap = app.createFilter('weekCap', { dataset: 'running_analytics', field: 'weekly_summary.week_start' });
+    const rideType = app.createFilter('rideType', { dataset: 'running_analytics', field: 'activities.ride_type', label: 'Ride type' });
+
+    // Date range: every date-driven query on the date its grain uses. KPI tiles
+    // (exact wall-clock windows) and appMeta/weightHistory (reference data) are excluded.
+    const byDate = { field: 'activities.date' };
+    const byWeekCat = { field: 'weekly_by_category.week_start' };
+    [weeklyLoad].forEach((q) => app.mapControl(dates, q, byWeekCat));
+    [weeklyDist, dailyKm, rideMix, weeklyTypeHours, ftpZones, intensityTrend, weeklyWatts,
+     speedByType, cadenceByType, cadenceBlocks, cadenceSpeed, hilliness, speedByTemp,
+     longDecoupling].forEach((q) => app.mapControl(dates, q, byDate));
+
+    // weekCap: C1 only — full history capped at the range end.
+    app.mapControl(weekCap, fitnessTrend, { field: 'weekly_summary.week_start' });
+
+    // Ride-type filter: activity-grain, type-split views + the type-honoring tiles.
+    // C1/C2/C6 (other grain), C3/C4/C16/C17 (date-only by spec) and the donut itself
+    // (the navigator) are deliberately excluded.
+    const byRideType = { field: 'activities.ride_type' };
+    [kpiWeekKm, kpi90, kpiIf90, ftpZones, intensityTrend, weeklyWatts, speedByType, cadenceByType,
+     cadenceBlocks, cadenceSpeed, hilliness, speedByTemp].forEach((q) => app.mapControl(rideType, q, byRideType));
+
+    // Cross-filter: a clicked ride-mix slice filters the same set as the picker.
+    [kpiWeekKm, kpi90, kpiIf90, ftpZones, intensityTrend, weeklyWatts, speedByType, cadenceByType,
+     cadenceBlocks, cadenceSpeed, hilliness, speedByTemp].forEach((q) => app.mapCrossFilter(rideMix, q));
+
+    document.getElementById('user').textContent = `Signed in as ${Anfra.user.name}`;
+
+    // ---- Charts ----
+    const charts = {};
+    for (const id of ['fitness-trend', 'weekly-load', 'weekly-dist', 'daily-heatmap', 'ride-mix',
+                      'weekly-type-hours', 'ftp-zones', 'intensity-trend', 'weekly-watts',
+                      'speed-by-type', 'cadence-by-type', 'cadence-blocks', 'cadence-speed',
+                      'hilliness', 'speed-by-temp', 'long-decoupling', 'decoupling-by-type']) {
+      charts[id] = echarts.init(document.getElementById(id));
+    }
+
+    const logged = new Set();
+
+    // The four states of a query: loading, error, no rows, success (status stays hidden).
+    function renderStatus (query, elementId, emptyText) {
+      const el = document.getElementById(elementId);
+      el.replaceChildren();
+      if (query.state === 'executing') {
+        el.append(Object.assign(document.createElement('div'), { className: 'skeleton' }));
+      } else if (query.state === 'error') {
+        const alert = Object.assign(document.createElement('div'), { className: 'alert' });
+        alert.dataset.variant = 'destructive';
+        const title = document.createElement('h2');
+        title.textContent = "Couldn't load this chart";
+        const detail = document.createElement('section');
+        detail.textContent = query.error.message;
+        alert.append(title, detail);
+        el.append(alert);
+      } else if (query.state === 'success' && query.result.rows.length === 0) {
+        el.append(Object.assign(document.createElement('div'), { className: 'empty', textContent: emptyText }));
+      }
+      el.classList.toggle('visible', el.childElementCount > 0);
+    }
+
+    function logFirstResult (query) {
+      if (query.state !== 'success' || logged.has(query.name)) return;
+      logged.add(query.name);
+      console.log(query.name, 'columns', query.result.columns, 'first row', query.result.rows[0],
+        'executed AQL', query.result.debug?.executedAql);
+    }
+
+    function axisStyle (theme) {
+      return {
+        axisLabel: { color: theme.text },
+        axisLine: { lineStyle: { color: theme.grid } },
+        splitLine: { lineStyle: { color: theme.grid } },
+      };
+    }
+
+    // ---- KPI tiles -----------------------------------------------------------
+    function kpis () {
+      if (appMeta.state === 'success' && appMeta.result.rows.length) {
+        const r = appMeta.result.rows[0];
+        const ftp = num(r.latest_ftp);
+        document.getElementById('kpi-ftp-value').textContent = ftp == null ? 'FTP not configured' : fmt0.format(ftp) + ' W';
+        const latest = day(r.latest_ride);
+        const n = num(r.total_rides);
+        document.getElementById('footer-meta').textContent =
+          `Data through ${latest || '–'} · ${n == null ? '–' : fmt0.format(n)} rides analyzed · Source: intervals.icu`;
+      }
+
+      if (kpiWeekKm.state === 'success') {
+        const kmByWeek = {};
+        kpiWeekKm.result.rows.forEach((r) => { kmByWeek[day(r.week)] = num(r.km) || 0; });
+        const cm = currentMonday();
+        const thisWeek = kmByWeek[localIso(cm)] || 0;
+        let sum4 = 0;
+        for (let i = 1; i <= 4; i++) sum4 += kmByWeek[localIso(new Date(cm.getTime() - i * 7 * 86400000))] || 0;
+        const avg4 = sum4 / 4;
+        document.getElementById('kpi-week-value').textContent = km(thisWeek);
+        if (sum4 === 0) {
+          document.getElementById('kpi-week-sub').textContent = 'no rides in the prior 4 complete weeks';
+        } else {
+          const pct = (thisWeek - avg4) / avg4 * 100;
+          const arrow = pct > 0.05 ? '▲' : pct < -0.05 ? '▼' : '•';
+          document.getElementById('kpi-week-sub').textContent =
+            `${arrow} ${pct > 0 ? '+' : ''}${fmt0.format(pct)}% vs 4-wk avg (${km(avg4)})`;
+        }
+      }
+
+      if (kpi90.state === 'success' && kpi90.result.rows.length) {
+        const r = kpi90.result.rows[0];
+        const elev = num(r.elev_m);
+        document.getElementById('kpi-90d-value').textContent = elev == null ? '–' : fmt0.format(elev) + ' m';
+        document.getElementById('kpi-90d-sub').textContent = `${km(num(r.total_km))} total`;
+      }
+
+      if (kpiIf90.state === 'success' && kpiIf90.result.rows.length) {
+        const r = kpiIf90.result.rows[0];
+        const ifAvg = num(r.if_avg);
+        document.getElementById('kpi-if-value').textContent = ifAvg == null ? '–' : fmt2.format(ifAvg) + ' IF';
+        document.getElementById('kpi-if-sub').textContent =
+          `${fmt0.format(num(r.power_rides) || 0)} rides with power`;
+      }
+    }
+
+    // ---- Fitness & load ------------------------------------------------------
+    function renderFitnessTrend (theme) {
+      const rows = fitnessTrend.result.rows;
+      charts['fitness-trend'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
+        tooltip: { trigger: 'axis' },
+        // TSB semantic colors via series split (a piecewise visualMap here crashes
+        // echarts 6.1.0 with "d[0].coord" when the dimension is empty): vermilion
+        // below zero (fatigued), indigo above (fresh). Gaps at zero crossings are
+        // bridged visually by the zero markLine.
+        xAxis: { type: 'category', data: rows.map((r) => day(r.week)), ...axisStyle(theme) },
+        yAxis: [
+          { type: 'value', ...axisStyle(theme) },
+          { type: 'value', splitLine: { show: false }, axisLabel: { color: theme.text }, axisLine: { lineStyle: { color: theme.grid } } },
+        ],
+        series: [
+          { name: 'CTL', type: 'line', smooth: true, showSymbol: false,
+            lineStyle: { color: theme.cat[0], width: 2 }, itemStyle: { color: theme.cat[0] },
+            data: rows.map((r) => num(r.ctl)) },
+          { name: 'ATL', type: 'line', smooth: true, showSymbol: false,
+            lineStyle: { color: theme.cat[3], width: 2 }, itemStyle: { color: theme.cat[3] },
+            data: rows.map((r) => num(r.atl)) },
+          { name: 'TSB (fresh)', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 1,
+            lineStyle: { color: theme.pos, width: 2, type: 'dashed' }, itemStyle: { color: theme.pos },
+            data: rows.map((r) => { const v = num(r.tsb); return v != null && v >= 0 ? v : null; }),
+            markLine: { silent: true, symbol: 'none',
+              lineStyle: { color: theme.grid, type: 'solid' },
+              label: { show: false },
+              data: [{ yAxis: 0 }] } },
+          { name: 'TSB (fatigue)', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 1,
+            lineStyle: { color: theme.neg, width: 2, type: 'dashed' }, itemStyle: { color: theme.neg },
+            data: rows.map((r) => { const v = num(r.tsb); return v != null && v < 0 ? v : null; }) },
+        ],
+      });
+    }
+
+    function renderWeeklyLoad (theme) {
+      const rows = weeklyLoad.result.rows;
+      // Ramp rate §8.7: load(wk) − load(wk−1); the first week in the window has no
+      // predecessor, so it stays a gap (null), never a fake 0.
+      const load = rows.map((r) => num(r.load));
+      const ramp = load.map((v, i) => (i === 0 || v == null || load[i - 1] == null ? null : v - load[i - 1]));
+      charts['weekly-load'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
+        tooltip: { trigger: 'axis' },
+        xAxis: { type: 'category', data: rows.map((r) => day(r.week)), ...axisStyle(theme) },
+        yAxis: [
+          { type: 'value', ...axisStyle(theme) },
+          { type: 'value', splitLine: { show: false }, axisLabel: { color: theme.text }, axisLine: { lineStyle: { color: theme.grid } } },
+        ],
+        series: [
+          { name: 'Cycling load', type: 'bar', barMaxWidth: 22,
+            itemStyle: { color: theme.cat[0], borderRadius: [3, 3, 0, 0] },
+            data: load },
+          { name: 'Ramp rate', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 1,
+            lineStyle: { color: theme.cat[3], width: 2 }, itemStyle: { color: theme.cat[3] },
+            data: ramp,
+            markLine: { silent: true, symbol: 'none',
+              lineStyle: { color: theme.grid, type: 'solid' },
+              label: { show: false },
+              data: [{ yAxis: 0 }] } },
+        ],
+      });
+    }
+
+    // ---- Volume ----------------------------------------------------------------
+    function renderWeeklyDist (theme) {
+      const rows = weeklyDist.result.rows;
+      charts['weekly-dist'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
+        tooltip: { trigger: 'axis' },
+        xAxis: { type: 'category', data: rows.map((r) => day(r.week)), ...axisStyle(theme) },
+        yAxis: [
+          { type: 'value', axisLabel: { color: theme.text, formatter: (v) => fmt0.format(v) + ' km' }, splitLine: axisStyle(theme).splitLine },
+          { type: 'value', splitLine: { show: false }, axisLabel: { color: theme.text, formatter: (v) => fmt0.format(v) + ' m' }, axisLine: { lineStyle: { color: theme.grid } } },
+        ],
+        series: [
+          { name: 'Ride distance', type: 'bar', barMaxWidth: 22,
+            itemStyle: { color: theme.cat[0], borderRadius: [3, 3, 0, 0] },
+            data: rows.map((r) => num(r.ride_km)) },
+          { name: 'Elevation gain', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 1,
+            lineStyle: { color: theme.cat[6], width: 2 }, itemStyle: { color: theme.cat[6] },
+            data: rows.map((r) => num(r.elev_gain_m)) },
+        ],
+      });
+    }
+
+    function renderDailyHeatmap (theme) {
+      const rows = dailyKm.result.rows;
+      const points = rows.map((r) => [day(r.day), num(r.ride_km) || 0]);
+      const rawMax = Math.max(...points.map((p) => p[1]), 1);
+      const maxKm = isFinite(rawMax) ? rawMax : 1;
+      // Calendar ramp: cream → indigo (dark mode: card surface → mid blue).
+      const ramp = theme.dark ? ['#16283C', '#2C5F8A', '#3E7CB1'] : ['#EFEAD8', '#A3C6DF', '#3E7CB1', '#16324F'];
+      charts['daily-heatmap'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        tooltip: { formatter: (p) => `${p.value[0]} · ${km(p.value[1])}` },
+        visualMap: { show: true, min: 0, max: maxKm, calculable: false, orient: 'horizontal',
+                     left: 'center', bottom: 0, itemHeight: 60, textStyle: { color: theme.text },
+                     inRange: { color: ramp } },
+        calendar: {
+          top: 24, left: 40, right: 16, bottom: 48,
+          cellSize: ['auto', 15],
+          range: [points[0][0], points[points.length - 1][0]],
+          itemStyle: { color: 'transparent', borderColor: theme.grid, borderWidth: 1 },
+          splitLine: { lineStyle: { color: theme.grid } },
+          dayLabel: { firstDay: 1, color: theme.text, fontSize: 11 },
+          monthLabel: { color: theme.text, fontSize: 11 },
+          yearLabel: { show: false },
+        },
+        series: [{ type: 'heatmap', coordinateSystem: 'calendar', data: points }],
+      });
+    }
+
+    function renderRideMix (theme) {
+      const rows = rideMix.result.rows;
+      const selected = new Set(rideMix.selectedRows.map((r) => r.ride_type));
+      const total = rows.reduce((acc, r) => acc + (num(r.hours) || 0), 0);
+      charts['ride-mix'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        tooltip: { formatter: (p) => `${p.name} · ${hours(p.value)}${total > 0 ? ` (${fmt0.format(p.value / total * 100)}%)` : ''}` },
+        series: [{
+          type: 'pie', radius: ['42%', '68%'], center: ['50%', '50%'],
+          // Sorted desc from 12 o'clock (query sorts hours desc; pie starts at 90°).
+          data: rows.map((r) => ({
+            name: r.ride_type,
+            value: num(r.hours),
+            itemStyle: { color: theme.type[r.ride_type] || theme.cat[0],
+                         opacity: selected.size === 0 || selected.has(r.ride_type) ? 1 : 0.3 },
+          })),
+          label: { color: theme.text, formatter: (p) => `${p.name}  ${fmt1.format(p.value)}h` },
+          labelLine: { lineStyle: { color: theme.grid } },
+        }],
+      });
+    }
+
+    function renderWeeklyTypeHours (theme) {
+      const rows = weeklyTypeHours.result.rows;
+      const weeks = [...new Set(rows.map((r) => day(r.week)))].sort();
+      const cell = {};
+      const weekTotal = {};
+      rows.forEach((r) => {
+        cell[day(r.week) + '|' + r.ride_type] = num(r.hours);
+        weekTotal[day(r.week)] = (weekTotal[day(r.week)] || 0) + (num(r.hours) || 0);
+      });
+      charts['weekly-type-hours'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
+        tooltip: {
+          trigger: 'axis',
+          formatter: (params) => {
+            const w = params[0].axisValue;
+            const parts = params.filter((p) => p.value != null && p.value > 0)
+              .map((p) => {
+                const share = weekTotal[w] > 0 ? ` (${fmt0.format(p.value / weekTotal[w] * 100)}%)` : '';
+                return `${p.marker}${p.seriesName}: ${hours(p.value)}${share}`;
+              });
+            return `${w}<br>${parts.join('<br>')}`;
+          },
+        },
+        xAxis: { type: 'category', data: weeks, ...axisStyle(theme) },
+        yAxis: { type: 'value', axisLabel: { color: theme.text, formatter: (v) => fmt0.format(v) + ' h' }, splitLine: axisStyle(theme).splitLine },
+        series: TYPES
+          .filter((t) => rows.some((r) => r.ride_type === t))
+          .map((t) => ({
+            name: t, type: 'bar', stack: 'hours', barMaxWidth: 28,
+            itemStyle: { color: theme.type[t] },
+            data: weeks.map((w) => cell[w + '|' + t] ?? 0),
+          })),
+      });
+    }
+
+    // ---- Intensity & power ------------------------------------------------------
+    function renderFtpZones (theme) {
+      const rows = ftpZones.result.rows;
+      const weeks = [...new Set(rows.map((r) => day(r.week)))].sort();
+      const cell = {};
+      rows.forEach((r) => { cell[day(r.week) + '|' + r.zone] = num(r.hours); });
+      const rides = rows.reduce((acc, r) => acc + (num(r.rides) || 0), 0);
+      document.getElementById('ftp-zones-count').textContent = `qualifying rides: ${fmt0.format(rides)} with power & FTP`;
+      charts['ftp-zones'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
+        tooltip: { trigger: 'axis', valueFormatter: (v) => fmt1.format(v) + ' h' },
+        xAxis: { type: 'category', data: weeks, ...axisStyle(theme) },
+        yAxis: { type: 'value', axisLabel: { color: theme.text, formatter: (v) => fmt0.format(v) + ' h' }, splitLine: axisStyle(theme).splitLine },
+        series: ZONES
+          .filter((z) => rows.some((r) => r.zone === z))
+          .map((z, i) => ({
+            name: z, type: 'bar', stack: 'hours', barMaxWidth: 26,
+            itemStyle: { color: theme.zones[ZONES.indexOf(z)] },
+            data: weeks.map((w) => cell[w + '|' + z] ?? 0),
+          })),
+      });
+    }
+
+    function renderIntensityTrend (theme) {
+      const rows = intensityTrend.result.rows;
+      charts['intensity-trend'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        grid: { left: 8, right: 8, top: 16, bottom: 8, containLabel: true },
+        tooltip: { trigger: 'axis', valueFormatter: (v) => fmt2.format(v) + ' IF' },
+        xAxis: { type: 'category', data: rows.map((r) => String(r.month).slice(0, 7)), ...axisStyle(theme) },
+        yAxis: { type: 'value', axisLabel: { color: theme.text, formatter: (v) => fmt2.format(v) }, splitLine: axisStyle(theme).splitLine },
+        series: [{
+          type: 'line', smooth: true, showSymbol: true, symbolSize: 5,
+          lineStyle: { color: theme.cat[0], width: 2 },
+          itemStyle: { color: theme.cat[0] },
+          areaStyle: { color: theme.cat[0], opacity: 0.08 },
+          data: rows.map((r) => num(r.if_avg)),
+        }],
+      });
+    }
+
+    // §8.5: weight = the ride week's average body weight, else the most recent
+    // earlier week's. Returns null when no weight exists at or before the week.
+    function weightLookup (rows) {
+      const weeks = rows
+        .map((r) => ({ w: day(r.week), kg: num(r.weight_kg) }))
+        .filter((x) => x.kg != null)
+        .sort((a, b) => (a.w < b.w ? -1 : 1));
+      return (w) => {
+        let v = null;
+        for (const x of weeks) { if (x.w <= w) v = x.kg; else break; }
+        return v;
+      };
+    }
+
+    function renderWeeklyWatts (theme) {
+      const rows = weeklyWatts.result.rows;
+      const weightOf = weightLookup(weightHistory.state === 'success' ? weightHistory.result.rows : []);
+      const weeks = rows.map((r) => day(r.week));
+      const watts = rows.map((r) => num(r.watts));
+      const wkg = rows.map((r, i) => (watts[i] == null ? null : {
+        week: weeks[i], v: weightOf(weeks[i]) != null && weightOf(weeks[i]) > 0 ? watts[i] / weightOf(weeks[i]) : null,
+      }));
+      charts['weekly-watts'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
+        tooltip: {
+          trigger: 'axis',
+          formatter: (params) => {
+            const w = params[0].axisValue;
+            const row = rows[weeks.indexOf(w)];
+            const kg = weightOf(w);
+            const parts = params.map((p) => `${p.marker}${p.seriesName}: ${p.seriesName === 'W/kg' ? fmt2.format(p.value) : fmt0.format(p.value) + ' W'}`);
+            const weightNote = kg != null ? `<br>body weight ${fmt1.format(kg)} kg` : '';
+            return `${w}<br>${parts.join('<br>')}${weightNote}`;
+          },
+        },
+        xAxis: { type: 'category', data: weeks, ...axisStyle(theme) },
+        yAxis: [
+          { type: 'value', axisLabel: { color: theme.text, formatter: (v) => fmt0.format(v) + ' W' }, splitLine: axisStyle(theme).splitLine },
+          { type: 'value', splitLine: { show: false }, axisLabel: { color: theme.text, formatter: (v) => fmt2.format(v) }, axisLine: { lineStyle: { color: theme.grid } } },
+        ],
+        series: [
+          { name: 'Weighted watts', type: 'line', smooth: true, showSymbol: false,
+            lineStyle: { color: theme.cat[0], width: 2 }, itemStyle: { color: theme.cat[0] },
+            data: watts },
+          // Weeks without a known weight = gap in W/kg only (connectNulls: false).
+          { name: 'W/kg', type: 'line', smooth: true, showSymbol: true, symbolSize: 5,
+            connectNulls: false, yAxisIndex: 1,
+            lineStyle: { color: theme.cat[1], width: 2 }, itemStyle: { color: theme.cat[1] },
+            data: wkg.map((x) => (x && x.v != null && isFinite(x.v) ? x.v : null)) },
+        ],
+      });
+    }
+
+    // ---- Speed & cadence -----------------------------------------------------------
+    // Pivot [month, ride_type, value] rows into one series per type. Months where a
+    // type has no rows stay null so the line breaks (connectNulls: false) instead of lying.
+    function pivotType (rows, alias) {
+      const months = [...new Set(rows.map((r) => String(r.month)))].sort();
+      const cell = {};
+      rows.forEach((r) => { cell[String(r.month) + '|' + r.ride_type] = num(r[alias]); });
+      return {
+        months,
+        series: TYPES
+          .filter((t) => rows.some((r) => r.ride_type === t))
+          .map((t) => ({ name: t, data: months.map((m) => cell[m + '|' + t] ?? null) })),
+      };
+    }
+
+    function renderTypeLine (query, chartId, alias, opts, theme) {
+      const { months, series } = pivotType(query.result.rows, alias);
+      charts[chartId].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
+        tooltip: { trigger: 'axis', valueFormatter: opts.tooltipFormatter },
+        xAxis: { type: 'category', data: months.map((m) => m.slice(0, 7)), ...axisStyle(theme) },
+        yAxis: { type: 'value', axisLabel: { color: theme.text, formatter: opts.axisFormatter }, splitLine: axisStyle(theme).splitLine },
+        series: series.map((s) => ({
+          name: s.name, type: 'line', smooth: true, connectNulls: false,
+          showSymbol: true, symbolSize: 5,
+          lineStyle: { color: theme.type[s.name], width: 2 },
+          itemStyle: { color: theme.type[s.name] },
+          data: s.data,
+        })),
+      });
+    }
+
+    function renderCadenceBlocks (theme) {
+      const rows = cadenceBlocks.result.rows;
+      const weeks = [...new Set(rows.map((r) => day(r.week)))].sort();
+      const cell = {};
+      rows.forEach((r) => { cell[day(r.week) + '|' + r.bucket] = num(r.hours); });
+      const rides = rows.reduce((acc, r) => acc + (num(r.rides) || 0), 0);
+      document.getElementById('cadence-blocks-count').textContent = `qualifying rides: ${fmt0.format(rides)}`;
+      charts['cadence-blocks'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
+        tooltip: { trigger: 'axis', valueFormatter: (v) => fmt1.format(v) + ' h' },
+        xAxis: { type: 'category', data: weeks, ...axisStyle(theme) },
+        yAxis: { type: 'value', axisLabel: { color: theme.text, formatter: (v) => fmt0.format(v) + ' h' }, splitLine: axisStyle(theme).splitLine },
+        series: BUCKETS
+          .filter((b) => rows.some((r) => r.bucket === b))
+          .map((b) => ({
+            name: b + ' rpm', type: 'bar', stack: 'hours', barMaxWidth: 26,
+            itemStyle: { color: theme.zones[BUCKETS.indexOf(b)] },
+            data: weeks.map((w) => cell[w + '|' + b] ?? 0),
+          })),
+      });
+    }
+
+    function renderCadenceSpeed (theme) {
+      const rows = cadenceSpeed.result.rows.filter((r) => num(r.speed_ms) != null && num(r.cadence) != null);
+      const series = TYPES
+        .map((t) => ({
+          name: t, type: 'scatter', symbolSize: 8,
+          itemStyle: { color: theme.type[t], opacity: 0.75 },
+          data: rows.filter((r) => r.ride_type === t)
+            .map((r) => ({ value: [num(r.speed_ms) * 3.6, num(r.cadence)], name: r.name, date: day(r.date) })),
+        }))
+        .filter((s) => s.data.length > 0);
+      charts['cadence-speed'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        legend: { top: 0, textStyle: { color: theme.text } },
+        grid: { left: 8, right: 8, top: 28, bottom: 8, containLabel: true },
+        tooltip: { formatter: (p) => `${p.data.name}<br>${p.data.date} · ${p.seriesName}<br>${fmt1.format(p.data.value[0])} km/h · ${fmt0.format(p.data.value[1])} rpm` },
+        xAxis: { type: 'value', name: 'avg speed (km/h)', nameLocation: 'middle', nameGap: 28,
+                 nameTextStyle: { color: theme.text },
+                 axisLabel: { color: theme.text, formatter: (v) => fmt1.format(v) }, splitLine: axisStyle(theme).splitLine },
+        yAxis: { type: 'value', name: 'avg cadence (rpm)', nameLocation: 'middle', nameGap: 40,
+                 nameTextStyle: { color: theme.text },
+                 axisLabel: { color: theme.text, formatter: (v) => fmt0.format(v) }, splitLine: axisStyle(theme).splitLine },
+        series,
+      });
+    }
+
+    // ---- Terrain & environment ----------------------------------------------------------
+    function renderSpeedByTemp (theme) {
+      const rows = speedByTemp.result.rows;
+      charts['speed-by-temp'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        grid: { left: 8, right: 8, top: 16, bottom: 8, containLabel: true },
+        tooltip: { formatter: (p) => `${p.name} · ${fmt1.format(p.value)} km/h · ${fmt0.format(p.data.rides || 0)} rides` },
+        xAxis: { type: 'category', data: rows.map((r) => `${num(r.bucket)}–${num(r.bucket) + 5} °C`), ...axisStyle(theme) },
+        yAxis: { type: 'value', axisLabel: { color: theme.text, formatter: (v) => fmt1.format(v) + ' km/h' }, splitLine: axisStyle(theme).splitLine },
+        series: [{
+          type: 'bar', barMaxWidth: 44,
+          itemStyle: { color: theme.cat[1], borderRadius: [3, 3, 0, 0] },
+          data: rows.map((r) => ({ value: num(r.speed_kmh), rides: num(r.rides) })),
+        }],
+      });
+    }
+
+    // ---- Long-ride endurance ------------------------------------------------------------
+    const DECOUPLING_ALARM = 8; // >+8% = aerobic-drift alarm tint
+
+    function renderLongDecoupling (theme) {
+      const rows = longDecoupling.result.rows
+        .map((r) => ({ name: r.name, date: day(r.date), dec: num(r.decoupling_pct), isLong: num(r.is_long) }))
+        .filter((r) => r.isLong === 1); // long rides only; rows without the flag aren't long
+      const withDec = rows.filter((r) => r.dec != null);
+      document.getElementById('long-decoupling-count').textContent =
+        `${withDec.length} of ${rows.length} long rides have decoupling`;
+      charts['long-decoupling'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        grid: { left: 8, right: 8, top: 16, bottom: 8, containLabel: true },
+        tooltip: { formatter: (p) => `${p.data[2]}<br>${p.data[0]} · ${fmt1.format(p.data[1])}% decoupling${p.data[1] > DECOUPLING_ALARM ? ' · above +8%' : ''}` },
+        xAxis: { type: 'time', ...axisStyle(theme) },
+        yAxis: { type: 'value', axisLabel: { color: theme.text, formatter: (v) => fmt0.format(v) + '%' }, splitLine: axisStyle(theme).splitLine },
+        series: [{
+          type: 'scatter', symbolSize: 10,
+          data: withDec.map((r) => ({
+            value: [r.date, r.dec, r.name],
+            // Drift alarm: color AND shape (never color alone).
+            symbol: r.dec > DECOUPLING_ALARM ? 'diamond' : 'circle',
+            symbolSize: r.dec > DECOUPLING_ALARM ? 13 : 9,
+            itemStyle: { color: r.dec > DECOUPLING_ALARM ? theme.neg : theme.cat[0], opacity: 0.8 },
+          })),
+          markLine: { silent: true, symbol: 'none',
+            lineStyle: { color: theme.cat[3], type: 'dashed', width: 1.5 },
+            label: { color: theme.text, formatter: (p) => 'avg ' + fmt1.format(Number(p.value)) + '%' },
+            data: [{ type: 'average', name: 'avg' }] },
+        }],
+      });
+    }
+
+    function renderDecouplingByType (theme) {
+      const rows = decouplingByType.result.rows;
+      charts['decoupling-by-type'].setOption({
+        animation: false,
+        textStyle: { color: theme.text },
+        grid: { left: 8, right: 8, top: 16, bottom: 8, containLabel: true },
+        tooltip: { formatter: (p) => `${p.name} · ${fmt1.format(p.value)}% avg decoupling · ${fmt0.format(p.data.rides)} long rides` },
+        xAxis: { type: 'category', data: rows.map((r) => r.ride_type), ...axisStyle(theme) },
+        yAxis: { type: 'value', axisLabel: { color: theme.text, formatter: (v) => fmt0.format(v) + '%' }, splitLine: axisStyle(theme).splitLine },
+        series: [{
+          type: 'bar', barMaxWidth: 56,
+          data: rows.map((r) => ({
+            value: num(r.decoupling_pct), rides: num(r.rides),
+            itemStyle: { color: theme.type[r.ride_type] || theme.cat[0], borderRadius: [3, 3, 0, 0] },
+          })),
+        }],
+      });
+    }
+
+    // ---- Focus banner (cross-filter) ------------------------------------------------------
+    function renderBanner () {
+      const banner = document.getElementById('focus-banner');
+      const selected = rideMix.state === 'success' ? rideMix.selectedRows.map((r) => r.ride_type) : [];
+      banner.hidden = selected.length === 0;
+      if (selected.length) {
+        document.getElementById('focus-text').textContent =
+          `Charts focused on: ${selected.join(', ')}. Click the slice again or clear to reset.`;
+      }
+    }
+
+    function render () {
+      renderStatus(appMeta, 'kpi-ftp-status', 'No rides recorded');
+      renderStatus(kpiWeekKm, 'kpi-week-status', 'No rides in this window');
+      renderStatus(kpi90, 'kpi-90d-status', 'No rides in the last 90 days');
+      renderStatus(kpiIf90, 'kpi-if-status', 'No power rides in the last 90 days');
+      renderStatus(fitnessTrend, 'fitness-trend-status', 'No weekly data');
+      renderStatus(weeklyLoad, 'weekly-load-status', 'No weekly data in this range');
+      renderStatus(weeklyDist, 'weekly-dist-status', 'No rides in this range');
+      renderStatus(dailyKm, 'daily-heatmap-status', 'No rides in this range');
+      renderStatus(rideMix, 'ride-mix-status', 'No rides in this range');
+      renderStatus(weeklyTypeHours, 'weekly-type-hours-status', 'No rides in this range');
+      renderStatus(ftpZones, 'ftp-zones-status', 'No rides with power & FTP in this window for the selected types');
+      renderStatus(intensityTrend, 'intensity-trend-status', 'No rides with power in this range');
+      renderStatus(weeklyWatts, 'weekly-watts-status', 'No power rides in this range');
+      renderStatus(speedByType, 'speed-by-type-status', 'No rides ≥ 1 km in this range for the selected types');
+      renderStatus(cadenceByType, 'cadence-by-type-status', 'No rides with cadence in this range for the selected types');
+      renderStatus(cadenceBlocks, 'cadence-blocks-status', 'No rides with cadence in this range for the selected types');
+      renderStatus(cadenceSpeed, 'cadence-speed-status', 'No rides with speed & cadence in this range');
+      renderStatus(hilliness, 'hilliness-status', 'No rides ≥ 1 km with elevation in this range');
+      renderStatus(speedByTemp, 'speed-by-temp-status', 'No rides with recorded temperature');
+      renderStatus(longDecoupling, 'long-decoupling-status', 'No long rides (≥ 75 min) in this range');
+      renderStatus(decouplingByType, 'decoupling-by-type-status', 'No long rides with decoupling in this range');
+
+      [appMeta, kpiWeekKm, kpi90, kpiIf90, fitnessTrend, weeklyLoad, weeklyDist, dailyKm, rideMix,
+       weeklyTypeHours, ftpZones, intensityTrend, weeklyWatts, weightHistory, speedByType, cadenceByType,
+       cadenceBlocks, cadenceSpeed, hilliness, speedByTemp, longDecoupling,
+       decouplingByType].forEach(logFirstResult);
+
+      const theme = chartTheme();
+      kpis();
+      renderBanner();
+      if (fitnessTrend.result) renderFitnessTrend(theme);
+      if (weeklyLoad.result) renderWeeklyLoad(theme);
+      if (weeklyDist.result) renderWeeklyDist(theme);
+      if (dailyKm.result && dailyKm.result.rows.length) renderDailyHeatmap(theme);
+      if (rideMix.result) renderRideMix(theme);
+      if (weeklyTypeHours.result && weeklyTypeHours.result.rows.length) renderWeeklyTypeHours(theme);
+      if (ftpZones.result && ftpZones.result.rows.length) renderFtpZones(theme);
+      if (intensityTrend.result) renderIntensityTrend(theme);
+      if (weeklyWatts.result) renderWeeklyWatts(theme);
+      if (speedByType.result && speedByType.result.rows.length) {
+        renderTypeLine(speedByType, 'speed-by-type', 'speed_kmh',
+          { tooltipFormatter: (v) => fmt1.format(v) + ' km/h', axisFormatter: (v) => fmt1.format(v) }, theme);
+      }
+      if (cadenceByType.result && cadenceByType.result.rows.length) {
+        renderTypeLine(cadenceByType, 'cadence-by-type', 'cadence_rpm',
+          { tooltipFormatter: (v) => fmt0.format(v) + ' rpm', axisFormatter: (v) => fmt0.format(v) }, theme);
+      }
+      if (cadenceBlocks.result && cadenceBlocks.result.rows.length) renderCadenceBlocks(theme);
+      if (cadenceSpeed.result) renderCadenceSpeed(theme);
+      if (hilliness.result && hilliness.result.rows.length) {
+        renderTypeLine(hilliness, 'hilliness', 'elev_per_km',
+          { tooltipFormatter: (v) => fmt1.format(v) + ' m/km', axisFormatter: (v) => fmt1.format(v) }, theme);
+      }
+      if (speedByTemp.result) renderSpeedByTemp(theme);
+      if (longDecoupling.result) renderLongDecoupling(theme);
+      if (decouplingByType.result) renderDecouplingByType(theme);
+
+      applyDefaultWindow();
+    }
+
+    app.subscribe(render);
+    // The frame toggle mutates data-theme on <html>; watch it (and our own .dark
+    // class writes) and re-render charts so they follow the active palette.
+    let themeQueued = false;
+    const onThemeSignal = () => {
+      if (themeQueued) return;
+      themeQueued = true;
+      queueMicrotask(() => { themeQueued = false; applyTheme(); render(); });
+    };
+    new MutationObserver(onThemeSignal)
+      .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] });
+    darkQuery.addEventListener('change', onThemeSignal);
+
+    // In-app day/night toggle: overrides system/frame until the next reload
+    // (sandboxed iframe = no storage to remember it across loads).
+    document.getElementById('theme-toggle').addEventListener('click', () => {
+      userTheme = isDark() ? 'light' : 'dark';
+      onThemeSignal();
+    });
+
+    // Cross-filter: click a ride-mix slice (toggles; selection filters the mapped queries).
+    charts['ride-mix'].on('click', (params) => {
+      const row = rideMix.result.rows[params.dataIndex];
+      const selected = rideMix.selectedRows;
+      rideMix.select(selected.includes(row)
+        ? selected.filter((picked) => picked !== row)
+        : [...selected, row]);
+      app.execute();
+    });
+
+    // Ride-type multi-select combobox: fixed road/virtual/mtb/gravel options, so no loadOptions().
+    const rideTypeBox = document.getElementById('ride-type-combobox');
+    const rideTypeList = document.getElementById('ride-type-listbox');
+    const domReady = document.readyState === 'loading'
+      ? new Promise((resolve) => document.addEventListener('DOMContentLoaded', resolve))
+      : Promise.resolve();
+    domReady.then(() => {
+      rideTypeList.replaceChildren(...TYPES.map((value) => {
+        const option = document.createElement('div');
+        option.setAttribute('role', 'option');
+        option.dataset.value = value;
+        option.textContent = value;
+        return option;
+      }));
+      rideTypeBox.refresh();
+    });
+    rideTypeBox.addEventListener('change', (event) => {
+      const values = Array.isArray(event.detail.value) ? event.detail.value : [];
+      rideType.setCondition({ operator: 'is', values });
+      app.execute();
+    });
+
+    // Date range: two date inputs plus presets. Empty means no filter. The paired
+    // weekCap filter (C1's right edge) is always kept in sync with the range's end.
+    const fromInput = document.getElementById('date-from');
+    const toInput = document.getElementById('date-to');
+    let userTouchedDates = false;
+    function applyDateRange () {
+      if (fromInput.value && toInput.value) {
+        dates.setCondition({ operator: 'between', values: [fromInput.value, toInput.value] });
+        const toMs = new Date(toInput.value + 'T00:00:00').getTime();
+        weekCap.setCondition({ operator: 'before', values: [localIso(new Date(toMs + 86400000))] });
+      } else {
+        dates.setCondition({ operator: 'is', values: [] });
+        weekCap.setCondition({ operator: 'is', values: [] });
+      }
+      app.execute();
+    }
+    fromInput.addEventListener('change', () => { userTouchedDates = true; applyDateRange(); });
+    toInput.addEventListener('change', () => { userTouchedDates = true; applyDateRange(); });
+    document.querySelectorAll('[data-days]').forEach((button) => {
+      button.addEventListener('click', () => {
+        userTouchedDates = true;
+        const today = new Date();
+        const kind = button.dataset.days;
+        if (kind === 'all') {
+          fromInput.value = '';
+          toInput.value = '';
+        } else {
+          const span = Number(kind); // 30 / 90 days, inclusive of today
+          const from = kind === 'ytd'
+            ? new Date(today.getFullYear(), 0, 1)
+            : new Date(today.getFullYear(), today.getMonth(), today.getDate() - (span - 1));
+          fromInput.value = localIso(from);
+          toInput.value = localIso(today);
+        }
+        applyDateRange();
+      });
+    });
+
+    // Default window (spec §6.2): last 90 days of DATA — from = latest ride − 89,
+    // to = latest ride — so the dashboard renders right on stale data. Applied once,
+    // after appMeta's first success, unless the user has already picked a range.
+    let defaultWindowApplied = false;
+    function applyDefaultWindow () {
+      if (defaultWindowApplied || userTouchedDates) return;
+      if (appMeta.state !== 'success' || !appMeta.result.rows.length) return;
+      defaultWindowApplied = true;
+      const latest = day(appMeta.result.rows[0].latest_ride);
+      if (!latest) return;
+      const to = new Date(latest + 'T00:00:00');
+      const from = new Date(to.getTime() - 89 * 86400000);
+      fromInput.value = localIso(from);
+      toInput.value = localIso(to);
+      applyDateRange();
+    }
+
+    // Clear focus / selection.
+    document.getElementById('clear-focus').addEventListener('click', () => {
+      app.clearSelection();
+      app.execute();
+    });
+    document.getElementById('clear-selection').addEventListener('click', () => {
+      app.clearSelection();
+      app.execute();
+    });
+
+    window.addEventListener('resize', () => {
+      Object.values(charts).forEach((chart) => chart.resize());
+    });
+
+    app.execute();
+  </script>
+</body>
+</html>

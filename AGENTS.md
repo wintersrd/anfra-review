@@ -14,6 +14,7 @@ Streamlit app (`streamlit_app/`) wired through anfra's MCP server via the
 | `models/*.model.aml`, `datasets/*.dataset.aml` | Semantic layer (truth definitions live here, not in apps) |
 | `apps/running.html` | Native anfra dashboard (21 queries, ECharts, single file) |
 | `streamlit_app/` | Streamlit app: `app.py` (UI), `queries_aql.py` (live AQL data layer), `queries.py` (SQL **test oracle** — do not delete), `theme.py` |
+| `streamlit_app/cycling_app.py` | Cycling dashboard (spec: `docs/cycling-app-spec.md`) with its own `cycling_queries_aql.py` live layer + `cycling_queries.py` oracle — same two-file pattern |
 | `anfra_client/` | Domain-agnostic Python SDK over the anfra MCP (`client`, `transport`, `mock`, `filters`, `models`, `errors`) |
 | `tests/` | `unit/`, `integration/`, `anfra/`, `charts/`, `anfra_client/` |
 | `docs/` | `anfra-framework-review.md` (evaluation incl. Streamlit comparison), `anfra-client-guide.md` (SDK guide) |

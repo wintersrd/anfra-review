@@ -92,6 +92,7 @@ ACTIVITY_COLUMNS = [
     ("gap_s", "INTEGER"),
     ("weighted_avg_watts", "DOUBLE"),
     ("icu_joules", "DOUBLE"),
+    ("icu_ftp", "DOUBLE"),
     ("external_id", "VARCHAR"),
 ]
 
@@ -235,6 +236,7 @@ def activity_row(act: dict) -> dict:
             act, "icu_weighted_avg_watts", "weighted_average_watts", "avg_watts"
         ),
         "icu_joules": fnum(act, "icu_joules"),
+        "icu_ftp": fnum(act, "icu_ftp"),
         "external_id": clean_text(act.get("external_id")),
     }
 
@@ -501,6 +503,14 @@ def build_db(
         "ALTER TABLE activities ADD COLUMN stride_time_s DOUBLE;",
         "UPDATE activities SET stride_time_s = CASE "
         "WHEN avg_cadence > 40 AND avg_speed_ms > 0 THEN moving_time_s END;",
+        # Cycling ride type (cycling analogue of run_surface): only the four
+        # canonical types get a value; EBikeRide and anything unmapped stay
+        # NULL and are therefore excluded from cycling views by design.
+        "ALTER TABLE activities ADD COLUMN ride_type TEXT;",
+        "UPDATE activities SET ride_type = CASE type "
+        "WHEN 'Ride' THEN 'road' WHEN 'VirtualRide' THEN 'virtual' "
+        "WHEN 'MountainBikeRide' THEN 'mtb' WHEN 'GravelRide' THEN 'gravel' END "
+        "WHERE sport_group = 'ride';",
     ]
     # anfra embeds an older DuckDB that cannot read files written in DuckDB 2.x's
     # new default storage format. Build in a temp file, then re-export into the

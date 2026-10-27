@@ -46,6 +46,23 @@ class TestTheme:
         for mode in (theme.LIGHT, theme.DARK):
             assert set(mode["surface"]) == {"road", "trail", "indoor"}
 
+    def test_ride_colors_cover_all_ride_types(self):
+        # Spec §6.3: road=blue, virtual=slate, mtb=ochre, gravel=green — both modes
+        for mode in (theme.LIGHT, theme.DARK):
+            assert set(mode["ride"]) == set(theme.RIDE_ORDER)
+            assert all(HEX.match(c) for c in mode["ride"].values())
+            assert len(set(mode["ride"].values())) == len(theme.RIDE_ORDER)
+
+    def test_ride_colors_differ_between_ride_types(self):
+        assert len({theme.LIGHT["ride"][r] for r in theme.RIDE_ORDER}) == 4
+
+    def test_ride_labels_cover_all_ride_types(self):
+        assert set(theme.RIDE_LABELS) == set(theme.RIDE_ORDER)
+
+    def test_ride_color_helper(self):
+        assert theme.ride_color(theme.DARK, "mtb") == theme.DARK["ride"]["mtb"]
+        assert theme.ride_color(theme.LIGHT, "nonsense") == theme.LIGHT["muted"]
+
     def test_heatmap_ramp_is_gradient(self):
         for mode in (theme.LIGHT, theme.DARK):
             ramp = mode["heatmap"]

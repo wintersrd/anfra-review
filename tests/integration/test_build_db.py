@@ -56,6 +56,40 @@ class TestBuildDB:
             == 0
         )
 
+    def test_ride_type_derivation(self, con):
+        rows = con.execute(
+            "SELECT type, ride_type, COUNT(*) FROM activities "
+            "WHERE sport_group='ride' GROUP BY 1, 2 ORDER BY 3 DESC"
+        ).fetchall()
+        by_type = {
+            atype: {surface: n for t, surface, n in rows if t == atype} for atype, _, _ in rows
+        }
+        assert by_type["VirtualRide"] == {"virtual": 106}
+        assert by_type["Ride"] == {"road": 34}
+        assert by_type["MountainBikeRide"] == {"mtb": 13}
+        assert by_type["GravelRide"] == {"gravel": 1}
+        # e-bike rides carry no ride_type and are excluded from the cycling app
+        assert by_type["EBikeRide"] == {None: 1}
+        # non-ride sports have no ride_type
+        assert (
+            con.execute(
+                "SELECT COUNT(*) FROM activities "
+                "WHERE sport_group<>'ride' AND ride_type IS NOT NULL"
+            ).fetchone()[0]
+            == 0
+        )
+
+    def test_icu_ftp_density(self, con):
+        # per-activity FTP: 154 of 155 rides (the e-bike ride is the null one), 220-250 W
+        n, lo, hi, distinct = con.execute(
+            "SELECT COUNT(*), MIN(icu_ftp), MAX(icu_ftp), COUNT(DISTINCT icu_ftp) "
+            "FROM activities WHERE sport_group='ride' AND icu_ftp IS NOT NULL"
+        ).fetchone()
+        assert (n, lo, hi, distinct) == (154, 220.0, 250.0, 4)
+        assert con.execute(
+            "SELECT type FROM activities WHERE sport_group='ride' AND icu_ftp IS NULL"
+        ).fetchall() == [("EBikeRide",)]
+
     def test_stride_guard(self, con):
         # stride only where cadence > 40 AND speed > 0; stride_time mirrors moving_time
         bad = con.execute(

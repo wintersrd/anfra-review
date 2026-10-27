@@ -27,6 +27,7 @@ LIGHT: dict[str, Any] = {
         "#6E7F92",  # slate
     ],
     "surface": {"road": "#16324F", "trail": "#C9A66B", "indoor": "#6E7F92"},
+    "ride": {"road": "#3E7CB1", "virtual": "#6E7F92", "mtb": "#C9A66B", "gravel": "#4A6B57"},
     "heatmap": ["#EFEAD8", "#C9A66B", "#3E7CB1", "#1E4368"],
 }
 
@@ -51,10 +52,15 @@ DARK: dict[str, Any] = {
         "#93A9BF",
     ],
     "surface": {"road": "#A9CBE4", "trail": "#D9BC85", "indoor": "#93A9BF"},
+    "ride": {"road": "#7FB3D8", "virtual": "#93A9BF", "mtb": "#D9BC85", "gravel": "#8FB39A"},
     "heatmap": ["#16283C", "#1E4368", "#3E7CB1", "#A9CBE4"],
 }
 
 SURFACE_ORDER = ["road", "trail", "indoor"]
+
+RIDE_ORDER = ["road", "virtual", "mtb", "gravel"]
+
+RIDE_LABELS = {"road": "Road", "virtual": "Virtual", "mtb": "MTB", "gravel": "Gravel"}
 
 SPORT_LABELS = {
     "run": "Run",
@@ -73,6 +79,10 @@ def palette(theme: dict[str, Any]) -> list[str]:
 
 def surface_color(theme: dict[str, Any], surface: str) -> str:
     return theme["surface"].get(surface, theme["muted"])
+
+
+def ride_color(theme: dict[str, Any], ride_type: str) -> str:
+    return theme["ride"].get(ride_type, theme["muted"])
 
 
 def apply_layout(fig: go.Figure, theme: dict[str, Any], title: str, height: int = 300) -> go.Figure:

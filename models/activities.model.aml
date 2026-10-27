@@ -53,6 +53,12 @@ Model activities {
     description: 'road / trail / indoor — derived from activity type, runs only'
     definition: @sql {{ #SOURCE.run_surface }};;
   }
+  dimension ride_type {
+    label: 'Ride Type'
+    type: 'text'
+    description: 'road / virtual / mtb / gravel — derived from activity type, rides only (null = not a typed ride; e-bike rides excluded)'
+    definition: @sql {{ #SOURCE.ride_type }};;
+  }
   dimension stride_m {
     label: 'Stride Length'
     type: 'number'
@@ -169,6 +175,20 @@ Model activities {
     type: 'number'
     hidden: true
     definition: @sql {{ #SOURCE.threshold_pace_ms }};;
+  }
+  dimension ftp_ref {
+    label: 'FTP Reference'
+    type: 'number'
+    hidden: true
+    description: 'Per-activity FTP (watts) recorded by intervals.icu at ride time; null when unknown.'
+    definition: @sql {{ #SOURCE.icu_ftp }};;
+  }
+  dimension decoupling {
+    label: 'HR Decoupling'
+    type: 'number'
+    hidden: true
+    description: 'Heart-rate decoupling (%) as provided by intervals.icu — sign preserved, never inverted; null when not computed.'
+    definition: @sql {{ #SOURCE.decoupling }};;
   }
 
   measure activity_count {
