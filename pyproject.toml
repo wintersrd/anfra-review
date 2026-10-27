@@ -38,7 +38,16 @@ markers = [
 ]
 
 [tool.coverage.run]
-omit = ["scripts/__pycache__/*"]
+omit = [
+    "scripts/__pycache__/*",
+    # Reference build pending model reconciliation (docs/cycling-model-delta.md):
+    # the skill-built Streamlit cycling app runs against the v2 model extension,
+    # which is deliberately not merged — its suites are skipped in
+    # tests/integration/conftest.py, so these files cannot be covered yet.
+    "streamlit_app/cycling_app.py",
+    "streamlit_app/cycling_queries.py",
+    "streamlit_app/cycling_queries_aql.py",
+]
 
 [tool.coverage.report]
 exclude_lines = [
